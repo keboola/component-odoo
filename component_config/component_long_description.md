@@ -1,0 +1,1 @@
+Odoo Extractor long description
