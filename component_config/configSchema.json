@@ -1,19 +1,126 @@
 {
   "type": "object",
-  "title": "extractor configuration",
-  "required": [
-    "print_hello"
-  ],
+  "title": "Odoo Extractor Configuration",
+  "required": ["odoo_url", "database", "username", "#api_key", "endpoints"],
   "properties": {
-    "print_hello": {
-      "type": "boolean",
-      "title": "Print Hello",
-      "propertyOrder": 1
+    "odoo_url": {
+      "type": "string",
+      "title": "Odoo URL",
+      "description": "Your Odoo instance URL (e.g., https://mycompany.odoo.com or http://localhost:8069)",
+      "propertyOrder": 10
+    },
+    "database": {
+      "type": "string",
+      "title": "Database Name",
+      "description": "Odoo database name",
+      "propertyOrder": 20
+    },
+    "username": {
+      "type": "string",
+      "title": "Username",
+      "description": "Odoo user email or login",
+      "propertyOrder": 30
+    },
+    "#api_key": {
+      "type": "string",
+      "title": "API Key / Password",
+      "description": "Odoo API key or password",
+      "format": "password",
+      "propertyOrder": 40
+    },
+    "test_connection": {
+      "type": "button",
+      "format": "test-connection",
+      "propertyOrder": 50,
+      "options": {
+        "async": {
+          "label": "Test Connection",
+          "action": "testConnection"
+        }
+      }
+    },
+    "endpoints": {
+      "type": "array",
+      "title": "Data Endpoints",
+      "description": "Configure which Odoo models to extract",
+      "propertyOrder": 100,
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "title": "Endpoint",
+        "required": ["model", "output_table"],
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Odoo Model",
+            "description": "Select the Odoo model to extract data from",
+            "format": "select",
+            "propertyOrder": 10,
+            "options": {
+              "async": {
+                "label": "Load Models",
+                "action": "listModels",
+                "autoload": true,
+                "cache": true
+              }
+            }
+          },
+          "output_table": {
+            "type": "string",
+            "title": "Output Table Name",
+            "description": "Name of the output CSV file (e.g., customers.csv)",
+            "pattern": "^[a-zA-Z0-9_-]+\\.csv$",
+            "propertyOrder": 20
+          },
+          "fields": {
+            "type": "array",
+            "title": "Fields to Extract",
+            "description": "Select fields to extract. Leave empty to extract all fields.",
+            "format": "select",
+            "uniqueItems": true,
+            "propertyOrder": 30,
+            "items": {
+              "type": "string"
+            },
+            "options": {
+              "async": {
+                "label": "Load Fields",
+                "action": "listFields"
+              }
+            }
+          },
+          "incremental": {
+            "type": "boolean",
+            "title": "Incremental Loading",
+            "description": "Extract only new records since last run (based on ID field)",
+            "default": false,
+            "propertyOrder": 40
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Record Limit",
+            "description": "Maximum number of records to extract per run (0 = no limit)",
+            "default": 1000,
+            "minimum": 0,
+            "maximum": 100000,
+            "propertyOrder": 50
+          },
+          "order": {
+            "type": "string",
+            "title": "Sort Order",
+            "description": "Order records by field (e.g., 'id asc', 'create_date desc')",
+            "default": "id asc",
+            "propertyOrder": 60
+          }
+        }
+      }
     },
     "debug": {
       "type": "boolean",
-      "title": "Debug",
-      "propertyOrder": 2
+      "title": "Debug Mode",
+      "description": "Enable verbose logging for troubleshooting",
+      "default": false,
+      "propertyOrder": 200
     }
   }
 }

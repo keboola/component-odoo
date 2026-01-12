@@ -1,26 +1,81 @@
+"""
+Configuration schema for Odoo Extractor.
+
+Uses Pydantic for validation with modern Python 3.9+ type hints.
+"""
+
 import logging
+from typing import Any
 
 from keboola.component.exceptions import UserException
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
-class Configuration(BaseModel):
-    print_hello: bool
-    api_token: str = Field(alias="#api_token")
-    debug: bool = False
+class OdooEndpoint(BaseModel):
+    """Configuration for an Odoo model extraction."""
 
-    def __init__(self, **data):
+    model: str = Field(
+        description="Odoo model name (e.g., 'res.partner', 'sale.order')"
+    )
+    output_table: str = Field(description="Output table name")
+    fields: list[str] | None = Field(
+        default=None, description="Fields to extract (all if empty)"
+    )
+    domain: list[Any] | None = Field(default=None, description="Odoo domain filter")
+    limit: int | None = Field(default=None, description="Maximum records to extract")
+    order: str | None = Field(default="id asc", description="Sort order")
+    incremental: bool = Field(default=False, description="Enable incremental loading")
+    primary_key: list[str] | None = Field(
+        default=None, description="Primary key columns"
+    )
+
+
+class Configuration(BaseModel):
+    """Main configuration for Odoo Extractor."""
+
+    # Connection settings
+    odoo_url: str = Field(description="Odoo instance URL")
+    database: str = Field(description="Database name")
+    username: str = Field(description="Username/email")
+    api_key: str = Field(alias="#api_key", description="API key or password")
+
+    # Extraction configuration
+    endpoints: list[OdooEndpoint] = Field(description="List of models to extract")
+
+    # Optional settings
+    debug: bool = Field(default=False, description="Enable debug logging")
+
+    def __init__(self, **data: Any) -> None:
+        """Initialize configuration with validation."""
         try:
             super().__init__(**data)
         except ValidationError as e:
             error_messages = [f"{err['loc'][0]}: {err['msg']}" for err in e.errors()]
-            raise UserException(f"Validation Error: {', '.join(error_messages)}")
+            raise UserException(
+                f"Configuration validation error: {', '.join(error_messages)}"
+            )
 
         if self.debug:
-            logging.debug("Component will run in Debug mode")
+            logging.getLogger().setLevel(logging.DEBUG)
+            logging.debug("Component running in DEBUG mode")
 
-    @field_validator("api_token")
-    def token_must_be_uppercase(cls, v):
-        if not v.isupper():
-            raise UserException("API token must be uppercase")
+    @field_validator("odoo_url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        """Validate Odoo URL format."""
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("Odoo URL must start with http:// or https://")
+        return v.rstrip("/")
+
+    @field_validator("endpoints")
+    @classmethod
+    def validate_endpoints(cls, v: list[OdooEndpoint]) -> list[OdooEndpoint]:
+        """Validate at least one endpoint is configured."""
+        if not v:
+            raise ValueError("At least one endpoint must be configured")
         return v
+
+    class Config:
+        """Pydantic configuration."""
+
+        populate_by_name = True  # Allow both 'api_key' and '#api_key'
