@@ -1,7 +1,13 @@
 {
   "type": "object",
   "title": "Odoo Extractor Configuration",
-  "required": ["odoo_url", "database", "username", "#api_key", "endpoints"],
+  "required": [
+    "odoo_url",
+    "database",
+    "username",
+    "#api_key",
+    "endpoints"
+  ],
   "properties": {
     "odoo_url": {
       "type": "string",
@@ -34,8 +40,8 @@
       "propertyOrder": 50,
       "options": {
         "async": {
-          "label": "Test Connection",
-          "action": "testConnection"
+          "action": "testConnection",
+          "label": "Test Connection"
         }
       }
     },
@@ -48,45 +54,44 @@
       "items": {
         "type": "object",
         "title": "Endpoint",
-        "required": ["model", "output_table"],
+        "required": [
+          "model"
+        ],
         "properties": {
           "model": {
             "type": "string",
             "title": "Odoo Model",
-            "description": "Select the Odoo model to extract data from",
-            "format": "select",
+            "description": "Odoo model name (e.g., res.partner, sale.order)",
             "propertyOrder": 10,
+            "enum": [],
             "options": {
               "async": {
-                "label": "Load Models",
                 "action": "listModels",
-                "autoload": true,
-                "cache": true
+                "label": "Load Models"
               }
             }
           },
-          "output_table": {
-            "type": "string",
-            "title": "Output Table Name",
-            "description": "Name of the output CSV file (e.g., customers.csv)",
-            "pattern": "^[a-zA-Z0-9_-]+\\.csv$",
-            "propertyOrder": 20
-          },
           "fields": {
             "type": "array",
-            "title": "Fields to Extract",
-            "description": "Select fields to extract. Leave empty to extract all fields.",
             "format": "select",
-            "uniqueItems": true,
-            "propertyOrder": 30,
+            "title": "Fields to Extract",
+            "description": "Fields to extract from the model",
+            "propertyOrder": 20,
+            "enum": [],
             "items": {
               "type": "string"
             },
+            "uniqueItems": true,
             "options": {
               "async": {
+                "action": "listFields",
                 "label": "Load Fields",
-                "action": "listFields"
-              }
+                "watchFor": [
+                  "model"
+                ]
+              },
+              "tags": true,
+              "creatable": true
             }
           },
           "incremental": {

@@ -96,7 +96,7 @@ class Component(ComponentBase):
         Args:
             endpoint: Endpoint configuration
         """
-        logging.info(f"Extracting {endpoint.model} -> {endpoint.output_table}")
+        logging.info(f"Extracting {endpoint.model} -> {endpoint.table_name}")
 
         # Get state for incremental loading (use shared self.state)
         # Use nested structure: state["endpoints"][table_name]["last_id"]
@@ -104,7 +104,7 @@ class Component(ComponentBase):
             last_id = 0
         else:
             endpoints_state = self.state.get("endpoints", {})
-            endpoint_state = endpoints_state.get(endpoint.output_table, {})
+            endpoint_state = endpoints_state.get(endpoint.table_name, {})
             last_id = endpoint_state.get("last_id", 0)
 
         # Build domain filter
@@ -131,7 +131,7 @@ class Component(ComponentBase):
 
         # Create output table
         table = self.create_out_table_definition(
-            name=endpoint.output_table,
+            name=endpoint.table_name,
             incremental=endpoint.incremental,
             primary_key=endpoint.primary_key or ["id"],
         )
@@ -154,14 +154,14 @@ class Component(ComponentBase):
             # Update nested state structure in shared self.state
             if "endpoints" not in self.state:
                 self.state["endpoints"] = {}
-            if endpoint.output_table not in self.state["endpoints"]:
-                self.state["endpoints"][endpoint.output_table] = {}
+            if endpoint.table_name not in self.state["endpoints"]:
+                self.state["endpoints"][endpoint.table_name] = {}
 
-            self.state["endpoints"][endpoint.output_table]["last_id"] = max_id
+            self.state["endpoints"][endpoint.table_name]["last_id"] = max_id
             # Note: State is written once at the end of run(), not here
             logging.info(f"Updated state: last_id = {max_id}")
 
-        logging.info(f"Wrote {len(records)} records to {endpoint.output_table}")
+        logging.info(f"Wrote {len(records)} records to {endpoint.table_name}")
 
     @staticmethod
     def _flatten_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -265,7 +265,7 @@ class Component(ComponentBase):
             raise UserException(f"Connection test failed: {str(e)}")
 
     @sync_action("listModels")
-    def list_models_action(self) -> dict[str, Any]:
+    def list_models_action(self) -> list[dict[str, str]]:
         """
         List available Odoo models - sync action for model dropdown.
 
@@ -301,7 +301,7 @@ class Component(ComponentBase):
                 for model in models
             ]
 
-            return {"status": "success", "data": dropdown_data}
+            return dropdown_data
 
         except UserException as e:
             raise e
@@ -309,7 +309,7 @@ class Component(ComponentBase):
             raise UserException(f"Failed to load models: {str(e)}")
 
     @sync_action("listFields")
-    def list_fields_action(self) -> dict[str, Any]:
+    def list_fields_action(self) -> list[dict[str, str]]:
         """
         List fields for selected model - sync action for fields dropdown.
         Receives current form values including selected model.
@@ -354,18 +354,19 @@ class Component(ComponentBase):
             )
             fields_dict = client.get_model_fields(model)
 
-            # Format for Keboola dropdown
-            # Sort by field name for better UX
+            # Format for Keboola dropdown in Odoo's original order
             dropdown_data = []
-            for field_name, field_info in sorted(fields_dict.items()):
-                field_label = field_info.get('string', field_name)
-                field_type = field_info.get('type', 'unknown')
-                dropdown_data.append({
-                    "value": field_name,
-                    "label": f"{field_label} ({field_name}) - {field_type}",
-                })
+            for field_name, field_info in fields_dict.items():
+                field_label = field_info.get("string", field_name)
+                field_type = field_info.get("type", "unknown")
+                dropdown_data.append(
+                    {
+                        "value": field_name,
+                        "label": f"{field_label} ({field_name}) - {field_type}",
+                    }
+                )
 
-            return {"status": "success", "data": dropdown_data}
+            return dropdown_data
 
         except UserException as e:
             raise e

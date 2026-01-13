@@ -5,14 +5,6 @@ PYTHON_FILE="src/component.py"
 # Set the path to the Markdown file containing actions
 MD_FILE="component_config/actions.md"
 
-# Check if the file exists before creating it
-if [ ! -e "$MD_FILE" ]; then
-    touch "$MD_FILE"
-else
-    echo "File already exists: $MD_FILE"
-    exit 1
-fi
-
 # Get all occurrences of lines containing @sync_action('XXX') from the .py file
 SYNC_ACTIONS=$(grep -o -E "@sync_action\(['\"][^'\"]*['\"]\)" "$PYTHON_FILE" | sed "s/@sync_action(\(['\"]\)\([^'\"]*\)\(['\"]\))/\2/" | sort | uniq)
 

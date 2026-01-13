@@ -10,3 +10,7 @@ venv
 
 # kbc datafolder
 data
+
+# dev
+data-*
+*.log

@@ -17,7 +17,9 @@ class OdooEndpoint(BaseModel):
     model: str = Field(
         description="Odoo model name (e.g., 'res.partner', 'sale.order')"
     )
-    output_table: str = Field(description="Output table name")
+    output_table: str | None = Field(
+        default=None, description="Output table name (auto-generated if not provided)"
+    )
     fields: list[str] | None = Field(
         default=None, description="Fields to extract (all if empty)"
     )
@@ -28,6 +30,14 @@ class OdooEndpoint(BaseModel):
     primary_key: list[str] | None = Field(
         default=None, description="Primary key columns"
     )
+
+    @property
+    def table_name(self) -> str:
+        """Get output table name, auto-generating from model if not provided."""
+        if self.output_table:
+            return self.output_table
+        # Convert model name: res.partner -> res_partner.csv
+        return f"{self.model.replace('.', '_')}.csv"
 
 
 class Configuration(BaseModel):
