@@ -211,12 +211,18 @@ class Component(ComponentBase):
         if not records:
             return
 
-        # Get all unique keys from all records
+        # Preserve field order from first record, then add any additional fields
+        # This keeps Odoo's original field order instead of alphabetical
+        fieldnames = list(records[0].keys())
+
+        # Add any fields that appear in other records but not in first record
         all_keys: set[str] = set()
         for record in records:
             all_keys.update(record.keys())
 
-        fieldnames = sorted(all_keys)
+        for key in all_keys:
+            if key not in fieldnames:
+                fieldnames.append(key)
 
         # Write CSV
         with open(file_path, mode="w", encoding="utf-8", newline="") as f:
@@ -292,13 +298,16 @@ class Component(ComponentBase):
             )
             models = client.list_models()
 
+            # Sort by technical name for natural categorization
+            models_sorted = sorted(models, key=lambda m: m["model"])
+
             # Format for Keboola dropdown: [{"value": "...", "label": "..."}]
             dropdown_data = [
                 {
                     "value": model["model"],
-                    "label": f"{model['name']} ({model['model']})",
+                    "label": f"{model['model']} - {model['name']}",
                 }
-                for model in models
+                for model in models_sorted
             ]
 
             return dropdown_data
