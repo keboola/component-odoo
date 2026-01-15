@@ -50,17 +50,6 @@ class TestConfiguration(unittest.TestCase):
         )
         self.assertEqual(config.odoo_url, "https://demo.odoo.com")
 
-    def test_empty_endpoints_rejected(self) -> None:
-        """Test that empty endpoints list is rejected."""
-        with self.assertRaises(Exception):
-            Configuration(
-                odoo_url="https://demo.odoo.com",
-                database="demo",
-                username="admin",
-                api_key="test",
-                endpoints=[],
-            )
-
 
 class TestXmlRpcClient(unittest.TestCase):
     """Test Odoo client."""

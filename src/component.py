@@ -29,8 +29,9 @@ class Component(ComponentBase):
     def __init__(self) -> None:
         """Initialize component."""
         super().__init__()
-        self.client: XmlRpcClient | Json2Client | None = None
         self.state: dict[str, Any] = {}
+        self.config = Configuration(**self.configuration.parameters)
+        self.client = self._initialize_client(self.config)
 
     def run(self) -> None:
         """
@@ -39,33 +40,20 @@ class Component(ComponentBase):
         Orchestrates the extraction workflow by delegating to well-named methods.
         Keeps this method concise (~20-30 lines) for readability.
         """
-        params = self._validate_and_get_configuration()
-        self.client = self._initialize_client(params)
+        if not self.config.endpoints:
+            raise UserException("No endpoints configured")
+
         self._test_connection()
 
-        # Load state once at the start
         self.state = self.get_state_file()
 
-        for endpoint in params.endpoints:
+        for endpoint in self.config.endpoints:
             self._extract_endpoint(endpoint)
 
-        # Write state once at the end
         if self.state:
             self.write_state_file(self.state)
 
         logging.info("Extraction completed successfully")
-
-    def _validate_and_get_configuration(self) -> Configuration:
-        """
-        Validate and return parsed configuration.
-
-        Returns:
-            Validated configuration object
-
-        Raises:
-            UserException: If configuration is invalid
-        """
-        return Configuration(**self.configuration.parameters)
 
     def _initialize_client(self, params: Configuration) -> XmlRpcClient | Json2Client:
         """
@@ -405,29 +393,10 @@ class Component(ComponentBase):
             Dropdown data with model names
         """
         try:
-            # Get connection parameters
-            params = self.configuration.parameters
-            odoo_url = params.get("odoo_url")
-            database = params.get("database")
-            username = params.get("username")
-            api_key = params.get("#api_key")
+            models = self.client.list_models()
 
-            if not all([odoo_url, database, username, api_key]):
-                raise UserException("Connection credentials required to load models")
-
-            # Initialize client and fetch models
-            client = XmlRpcClient(
-                url=odoo_url,
-                database=database,
-                username=username,
-                api_key=api_key,
-            )
-            models = client.list_models()
-
-            # Sort by technical name for natural categorization
             models_sorted = sorted(models, key=lambda m: m["model"])
 
-            # Format for Keboola dropdown: [{"value": "...", "label": "..."}]
             dropdown_data = [
                 {
                     "value": model["model"],
@@ -453,43 +422,20 @@ class Component(ComponentBase):
             Dropdown data with field names
         """
         try:
-            # Get connection parameters
-            params = self.configuration.parameters
-            odoo_url = params.get("odoo_url")
-            database = params.get("database")
-            username = params.get("username")
-            api_key = params.get("#api_key")
-
-            if not all([odoo_url, database, username, api_key]):
-                raise UserException("Connection credentials required to load fields")
-
-            # Get selected model from current form values
-            # The UI passes the current configuration including the endpoints array
-            endpoints = params.get("endpoints", [])
-            if not endpoints:
+            if not self.config.endpoints:
                 raise UserException("Please add an endpoint first")
 
-            # Get the model from the endpoint being configured
-            # Keboola passes the entire config, find the model from any endpoint
             model = None
-            for endpoint in endpoints:
-                if "model" in endpoint and endpoint["model"]:
-                    model = endpoint["model"]
+            for endpoint in self.config.endpoints:
+                if endpoint.model:
+                    model = endpoint.model
                     break
 
             if not model:
                 raise UserException("Please select a model first")
 
-            # Initialize client and fetch fields
-            client = XmlRpcClient(
-                url=odoo_url,
-                database=database,
-                username=username,
-                api_key=api_key,
-            )
-            fields_dict = client.get_model_fields(model)
+            fields_dict = self.client.get_model_fields(model)
 
-            # Format for Keboola dropdown in Odoo's original order
             dropdown_data = []
             for field_name, field_info in fields_dict.items():
                 field_label = field_info.get("string", field_name)

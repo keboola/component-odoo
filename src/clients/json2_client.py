@@ -6,6 +6,8 @@ Compatible with Odoo v19+.
 """
 
 import logging
+from typing import Any
+
 import requests
 
 from keboola.component.exceptions import UserException
@@ -163,3 +165,55 @@ class Json2Client:
             raise e
         except Exception as e:
             raise UserException(f"JSON-2 failed to list models: {str(e)}")
+
+    def get_model_fields(self, model: str) -> dict[str, dict[str, Any]]:
+        """
+        Get field definitions for an Odoo model.
+
+        Args:
+            model: Odoo model name (e.g., 'res.partner')
+
+        Returns:
+            Dictionary of field definitions with field metadata
+
+        Raises:
+            UserException: If getting fields fails
+        """
+        try:
+            response = requests.post(
+                f"{self.base_url}/{model}/fields_get",
+                headers=self.headers,
+                json={"attributes": ["string", "type", "help", "required"]},
+                timeout=30,
+            )
+            response.raise_for_status()
+
+            fields = response.json()
+
+            if not isinstance(fields, dict):
+                raise UserException(
+                    f"Unexpected response type from Odoo: {type(fields)}"
+                )
+
+            logging.info(f"Retrieved {len(fields)} fields for {model} via JSON-2")
+            return fields
+
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                raise UserException("JSON-2 authentication failed: Invalid API key")
+            elif e.response.status_code == 403:
+                raise UserException(
+                    f"JSON-2 access forbidden: User lacks permission to access {model}"
+                )
+            elif e.response.status_code == 404:
+                raise UserException(
+                    f"JSON-2 model not found: {model} does not exist or API unavailable"
+                )
+            else:
+                raise UserException(
+                    f"JSON-2 failed to get fields for {model}: HTTP {e.response.status_code}"
+                )
+        except UserException as e:
+            raise e
+        except Exception as e:
+            raise UserException(f"JSON-2 failed to get fields for {model}: {str(e)}")

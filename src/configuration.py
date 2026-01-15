@@ -53,7 +53,9 @@ class Configuration(BaseModel):
     )
 
     # Extraction configuration
-    endpoints: list[OdooEndpoint] = Field(description="List of models to extract")
+    endpoints: list[OdooEndpoint] = Field(
+        default=[], description="List of models to extract"
+    )
 
     # Optional settings
     debug: bool = Field(default=False, description="Enable debug logging")
@@ -79,14 +81,6 @@ class Configuration(BaseModel):
         if not v.startswith(("http://", "https://")):
             raise ValueError("Odoo URL must start with http:// or https://")
         return v.rstrip("/")
-
-    @field_validator("endpoints")
-    @classmethod
-    def validate_endpoints(cls, v: list[OdooEndpoint]) -> list[OdooEndpoint]:
-        """Validate at least one endpoint is configured."""
-        if not v:
-            raise ValueError("At least one endpoint must be configured")
-        return v
 
     class Config:
         """Pydantic configuration."""
