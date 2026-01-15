@@ -16,19 +16,21 @@ from keboola.component.exceptions import UserException
 class Json2Client:
     """Client for interacting with Odoo JSON-2 API (Odoo 19+)."""
 
-    def __init__(self, url: str, database: str, username: str, api_key: str) -> None:
+    def __init__(
+        self, url: str, database: str, username: str | None, api_key: str
+    ) -> None:
         """
         Initialize Odoo JSON-2 client.
 
         Args:
             url: Odoo instance URL (e.g., https://mycompany.odoo.com)
             database: Database name
-            username: User email/login (for reference, not used in auth)
+            username: User email/login (not used in JSON-2 auth)
             api_key: API key (bearer token)
         """
         self.url: str = url.rstrip("/")
         self.database: str = database
-        self.username: str = username  # Not used in auth, kept for compatibility
+        self.username: str | None = username  # Not used in JSON-2 auth
         self.api_key: str = api_key
 
         # Base URL for JSON-2 API

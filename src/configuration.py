@@ -8,7 +8,10 @@ import logging
 from typing import Any
 
 from keboola.component.exceptions import UserException
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+
+# Protocol constants
+PROTOCOL_XMLRPC = "xmlrpc"
 
 
 class OdooEndpoint(BaseModel):
@@ -46,10 +49,10 @@ class Configuration(BaseModel):
     # Connection settings
     odoo_url: str = Field(description="Odoo instance URL")
     database: str = Field(description="Database name")
-    username: str = Field(description="Username/email")
-    api_key: str = Field(alias="#api_key", description="API key or password")
+    username: str | None = Field(default=None, description="Username/email")
+    api_key: str = Field(alias="#api_key", description="API key")
     api_protocol: str = Field(
-        default="xmlrpc", description="API protocol: xmlrpc or json2"
+        default=PROTOCOL_XMLRPC, description="API protocol: xmlrpc or json2"
     )
 
     # Extraction configuration
@@ -65,7 +68,12 @@ class Configuration(BaseModel):
         try:
             super().__init__(**data)
         except ValidationError as e:
-            error_messages = [f"{err['loc'][0]}: {err['msg']}" for err in e.errors()]
+            error_messages = []
+            for err in e.errors():
+                if err["loc"]:
+                    error_messages.append(f"{err['loc'][0]}: {err['msg']}")
+                else:
+                    error_messages.append(err["msg"])
             raise UserException(
                 f"Configuration validation error: {', '.join(error_messages)}"
             )
@@ -81,6 +89,13 @@ class Configuration(BaseModel):
         if not v.startswith(("http://", "https://")):
             raise ValueError("Odoo URL must start with http:// or https://")
         return v.rstrip("/")
+
+    @model_validator(mode="after")
+    def validate_username_for_xmlrpc(self) -> "Configuration":
+        """Validate username is provided when using XML-RPC protocol."""
+        if self.api_protocol == PROTOCOL_XMLRPC and not self.username:
+            raise ValueError("Username required for XML-RPC authentication")
+        return self
 
     class Config:
         """Pydantic configuration."""

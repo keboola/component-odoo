@@ -17,6 +17,11 @@ from configuration import Configuration, OdooEndpoint
 from clients.xmlrpc_client import XmlRpcClient
 from clients.json2_client import Json2Client
 
+PROTOCOL_JSON2 = "json2"
+PROTOCOL_XMLRPC = "xmlrpc"
+DISPLAY_JSON2 = "JSON-2"
+DISPLAY_XMLRPC = "XML-RPC"
+
 
 class Component(ComponentBase):
     """
@@ -65,7 +70,7 @@ class Component(ComponentBase):
         Returns:
             Initialized XmlRpcClient or Json2Client based on api_protocol setting
         """
-        ClientClass = Json2Client if params.api_protocol == "json2" else XmlRpcClient
+        ClientClass = Json2Client if params.api_protocol == PROTOCOL_JSON2 else XmlRpcClient
 
         return ClientClass(
             url=params.odoo_url,
@@ -136,11 +141,7 @@ class Component(ComponentBase):
 
         # Update state for incremental loading
         if endpoint.incremental and records:
-            max_id = max(
-                record.get("id", 0)
-                for record in records
-                if isinstance(record.get("id"), int)
-            )
+            max_id = max(record.get("id", 0) for record in records if isinstance(record.get("id"), int))
 
             # Update nested state structure in shared self.state
             if "endpoints" not in self.state:
@@ -171,11 +172,7 @@ class Component(ComponentBase):
         flattened: dict[str, Any] = {}
 
         for key, value in record.items():
-            if (
-                isinstance(value, (list, tuple))
-                and len(value) == 2
-                and isinstance(value[0], int)
-            ):
+            if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], int):
                 # Many2one field: [id, name]
                 flattened[f"{key}_id"] = value[0]
                 flattened[f"{key}_name"] = value[1]
@@ -266,18 +263,13 @@ class Component(ComponentBase):
             Success/error response for UI
         """
         try:
-            # Get parameters (no full validation needed for sync actions)
-            params = self.configuration.parameters
-            odoo_url = params.get("odoo_url")
-            database = params.get("database")
-            username = params.get("username")
-            api_key = params.get("#api_key")
-            selected_protocol = params.get("api_protocol", "xmlrpc")
-
-            if not all([odoo_url, database, username, api_key]):
-                raise UserException(
-                    "All connection fields are required: Odoo URL, Database, Username, and API Key"
-                )
+            # All validation happens in Configuration __init__
+            # Just extract the values we need
+            odoo_url = self.config.odoo_url
+            database = self.config.database
+            username = self.config.username
+            api_key = self.config.api_key
+            selected_protocol = self.config.api_protocol
 
             # Step 1: Check protocol availability (no auth required)
             protocols_available = {}
@@ -290,20 +282,20 @@ class Component(ComponentBase):
             # Check XML-RPC availability
             try:
                 version = xmlrpc_client.get_version()
-                protocols_available["XML-RPC"] = True
+                protocols_available[DISPLAY_XMLRPC] = True
                 odoo_version = version
             except Exception as e:
-                protocols_available["XML-RPC"] = False
+                protocols_available[DISPLAY_XMLRPC] = False
                 logging.debug(f"XML-RPC availability check failed: {e}")
 
             # Check JSON-2 availability
             try:
                 version = json2_client.get_version()
-                protocols_available["JSON-2"] = True
+                protocols_available[DISPLAY_JSON2] = True
                 if not odoo_version:
                     odoo_version = version
             except Exception as e:
-                protocols_available["JSON-2"] = False
+                protocols_available[DISPLAY_JSON2] = False
                 logging.debug(f"JSON-2 availability check failed: {e}")
 
             # Fail if no version detected from any protocol
@@ -312,7 +304,7 @@ class Component(ComponentBase):
 
             # Step 2: Build "Supports" section
             supports_parts = []
-            for protocol in ["JSON-2", "XML-RPC"]:
+            for protocol in [DISPLAY_JSON2, DISPLAY_XMLRPC]:
                 symbol = "✓" if protocols_available.get(protocol, False) else "✗"
                 supports_parts.append(f"{protocol} {symbol}")
             supports_str = ", ".join(supports_parts)
@@ -321,48 +313,48 @@ class Component(ComponentBase):
             selected_client = None
             auth_message = ""
 
-            if selected_protocol == "json2":
-                if not protocols_available["JSON-2"]:
+            if selected_protocol == PROTOCOL_JSON2:
+                if not protocols_available[DISPLAY_JSON2]:
                     return {
                         "status": "error",
                         "message": (
                             f"Odoo {odoo_version}. Supports: {supports_str}. "
-                            "JSON-2 not available on this instance"
+                            f"{DISPLAY_JSON2} not available on this instance"
                         ),
                     }
                 try:
                     json2_client.test_connection()
                     selected_client = json2_client
-                    auth_message = "Authenticated using JSON-2"
+                    auth_message = f"Authenticated using {DISPLAY_JSON2}"
                 except Exception as e:
                     short_error = self._extract_short_error(e)
                     return {
                         "status": "error",
                         "message": (
                             f"Odoo {odoo_version}. Supports: {supports_str}. "
-                            f"Authentication failed using JSON-2 ({short_error})"
+                            f"Authentication failed using {DISPLAY_JSON2} ({short_error})"
                         ),
                     }
             else:  # xmlrpc (default)
-                if not protocols_available["XML-RPC"]:
+                if not protocols_available[DISPLAY_XMLRPC]:
                     return {
                         "status": "error",
                         "message": (
                             f"Odoo {odoo_version}. Supports: {supports_str}. "
-                            "XML-RPC not available on this instance"
+                            f"{DISPLAY_XMLRPC} not available on this instance"
                         ),
                     }
                 try:
                     xmlrpc_client.test_connection()
                     selected_client = xmlrpc_client
-                    auth_message = "Authenticated using XML-RPC"
+                    auth_message = f"Authenticated using {DISPLAY_XMLRPC}"
                 except Exception as e:
                     short_error = self._extract_short_error(e)
                     return {
                         "status": "error",
                         "message": (
                             f"Odoo {odoo_version}. Supports: {supports_str}. "
-                            f"Authentication failed using XML-RPC ({short_error})"
+                            f"Authentication failed using {DISPLAY_XMLRPC} ({short_error})"
                         ),
                     }
 
