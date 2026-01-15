@@ -9,7 +9,6 @@ import logging
 from typing import Any
 
 import requests
-
 from keboola.component.exceptions import UserException
 
 

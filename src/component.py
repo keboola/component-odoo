@@ -13,9 +13,9 @@ from typing import Any
 from keboola.component.base import ComponentBase, sync_action
 from keboola.component.exceptions import UserException
 
-from configuration import Configuration, OdooEndpoint
-from clients.xmlrpc_client import XmlRpcClient
 from clients.json2_client import Json2Client
+from clients.xmlrpc_client import XmlRpcClient
+from configuration import Configuration, OdooEndpoint
 
 PROTOCOL_JSON2 = "json2"
 PROTOCOL_XMLRPC = "xmlrpc"
@@ -70,7 +70,9 @@ class Component(ComponentBase):
         Returns:
             Initialized XmlRpcClient or Json2Client based on api_protocol setting
         """
-        ClientClass = Json2Client if params.api_protocol == PROTOCOL_JSON2 else XmlRpcClient
+        ClientClass = (
+            Json2Client if params.api_protocol == PROTOCOL_JSON2 else XmlRpcClient
+        )
 
         return ClientClass(
             url=params.odoo_url,
@@ -141,7 +143,11 @@ class Component(ComponentBase):
 
         # Update state for incremental loading
         if endpoint.incremental and records:
-            max_id = max(record.get("id", 0) for record in records if isinstance(record.get("id"), int))
+            max_id = max(
+                record.get("id", 0)
+                for record in records
+                if isinstance(record.get("id"), int)
+            )
 
             # Update nested state structure in shared self.state
             if "endpoints" not in self.state:
@@ -172,7 +178,11 @@ class Component(ComponentBase):
         flattened: dict[str, Any] = {}
 
         for key, value in record.items():
-            if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], int):
+            if (
+                isinstance(value, (list, tuple))
+                and len(value) == 2
+                and isinstance(value[0], int)
+            ):
                 # Many2one field: [id, name]
                 flattened[f"{key}_id"] = value[0]
                 flattened[f"{key}_name"] = value[1]

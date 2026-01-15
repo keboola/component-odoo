@@ -8,9 +8,9 @@ import unittest
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
+from clients.xmlrpc_client import XmlRpcClient
 from component import Component
 from configuration import Configuration, OdooEndpoint
-from clients.xmlrpc_client import XmlRpcClient
 
 
 class TestConfiguration(unittest.TestCase):
