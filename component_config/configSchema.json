@@ -34,6 +34,20 @@
       "format": "password",
       "propertyOrder": 40
     },
+    "api_protocol": {
+      "type": "string",
+      "title": "API Protocol",
+      "description": "Select XML-RPC (all versions) or JSON-2 (Odoo 19+). Use Test Connection to see which protocols your instance supports.",
+      "enum": ["xmlrpc", "json2"],
+      "default": "xmlrpc",
+      "propertyOrder": 45,
+      "options": {
+        "enum_titles": [
+          "XML-RPC (all versions, deprecated in Odoo 20)",
+          "JSON-2 (Odoo 19+ only)"
+        ]
+      }
+    },
     "test_connection": {
       "type": "button",
       "format": "test-connection",

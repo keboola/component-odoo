@@ -14,7 +14,8 @@ from keboola.component.base import ComponentBase, sync_action
 from keboola.component.exceptions import UserException
 
 from configuration import Configuration, OdooEndpoint
-from odoo_client import OdooClient
+from clients.xmlrpc_client import XmlRpcClient
+from clients.json2_client import Json2Client
 
 
 class Component(ComponentBase):
@@ -28,7 +29,7 @@ class Component(ComponentBase):
     def __init__(self) -> None:
         """Initialize component."""
         super().__init__()
-        self.client: OdooClient | None = None
+        self.client: XmlRpcClient | Json2Client | None = None
         self.state: dict[str, Any] = {}
 
     def run(self) -> None:
@@ -66,17 +67,19 @@ class Component(ComponentBase):
         """
         return Configuration(**self.configuration.parameters)
 
-    def _initialize_client(self, params: Configuration) -> OdooClient:
+    def _initialize_client(self, params: Configuration) -> XmlRpcClient | Json2Client:
         """
-        Initialize and return Odoo client.
+        Initialize and return appropriate Odoo client based on api_protocol config.
 
         Args:
             params: Configuration object
 
         Returns:
-            Initialized OdooClient
+            Initialized XmlRpcClient or Json2Client based on api_protocol setting
         """
-        return OdooClient(
+        ClientClass = Json2Client if params.api_protocol == "json2" else XmlRpcClient
+
+        return ClientClass(
             url=params.odoo_url,
             database=params.database,
             username=params.username,
@@ -230,10 +233,46 @@ class Component(ComponentBase):
             writer.writeheader()
             writer.writerows(records)
 
+    # === Helper Methods ===
+
+    def _extract_short_error(self, exception: Exception) -> str:
+        """Extract concise error message from exception."""
+        error_str = str(exception)
+
+        # Map common errors to short forms
+        if "Invalid apikey" in error_str or "Invalid API key" in error_str:
+            return "invalid API key"
+        elif "401" in error_str:
+            return "invalid API key"
+        elif "403" in error_str or "forbidden" in error_str.lower():
+            return "access forbidden"
+        elif "404" in error_str:
+            return "endpoint not found"
+        elif "invalid credentials" in error_str.lower():
+            return "invalid credentials"
+        elif "authentication failed" in error_str.lower():
+            # Extract the specific reason if present
+            parts = error_str.split(":")
+            if len(parts) > 1:
+                return parts[-1].strip()[:50]
+            return error_str[:50]
+        else:
+            # Keep it short, max 50 chars
+            return error_str[:50] + "..." if len(error_str) > 50 else error_str
+
+    # === Sync Actions (UI buttons) ===
+
     @sync_action("testConnection")
     def test_connection_action(self) -> dict[str, str]:
         """
-        Test Odoo connection - sync action for UI button.
+        Test connection showing:
+        1. Odoo version
+        2. Protocol availability (✓/✗ for both JSON-2 and XML-RPC)
+        3. Authentication status for selected protocol only
+        4. Model count if authentication succeeds
+
+        Message format:
+        "Odoo {version}. Supports: JSON-2 {✓/✗}, XML-RPC {✓/✗}. Authenticated using {protocol}, {N} models"
 
         Returns:
             Success/error response for UI
@@ -245,25 +284,112 @@ class Component(ComponentBase):
             database = params.get("database")
             username = params.get("username")
             api_key = params.get("#api_key")
+            selected_protocol = params.get("api_protocol", "xmlrpc")
 
             if not all([odoo_url, database, username, api_key]):
                 raise UserException(
                     "All connection fields are required: Odoo URL, Database, Username, and API Key"
                 )
 
-            # Initialize client and test
-            client = OdooClient(
-                url=odoo_url,
-                database=database,
-                username=username,
-                api_key=api_key,
-            )
-            client.test_connection()
+            # Step 1: Check protocol availability (no auth required)
+            protocols_available = {}
+            odoo_version = None
 
-            return {
-                "status": "success",
-                "message": "Connection successful! Odoo instance is accessible.",
-            }
+            # Initialize clients
+            xmlrpc_client = XmlRpcClient(odoo_url, database, username, api_key)
+            json2_client = Json2Client(odoo_url, database, username, api_key)
+
+            # Check XML-RPC availability
+            try:
+                version = xmlrpc_client.get_version()
+                protocols_available["XML-RPC"] = True
+                odoo_version = version
+            except Exception as e:
+                protocols_available["XML-RPC"] = False
+                logging.debug(f"XML-RPC availability check failed: {e}")
+
+            # Check JSON-2 availability
+            try:
+                version = json2_client.get_version()
+                protocols_available["JSON-2"] = True
+                if not odoo_version:
+                    odoo_version = version
+            except Exception as e:
+                protocols_available["JSON-2"] = False
+                logging.debug(f"JSON-2 availability check failed: {e}")
+
+            # Fail if no version detected from any protocol
+            if not odoo_version:
+                raise UserException("Cannot connect to Odoo instance at this URL")
+
+            # Step 2: Build "Supports" section
+            supports_parts = []
+            for protocol in ["JSON-2", "XML-RPC"]:
+                symbol = "✓" if protocols_available.get(protocol, False) else "✗"
+                supports_parts.append(f"{protocol} {symbol}")
+            supports_str = ", ".join(supports_parts)
+
+            # Step 3: Test authentication for selected protocol only
+            selected_client = None
+            auth_message = ""
+
+            if selected_protocol == "json2":
+                if not protocols_available["JSON-2"]:
+                    return {
+                        "status": "error",
+                        "message": (
+                            f"Odoo {odoo_version}. Supports: {supports_str}. "
+                            "JSON-2 not available on this instance"
+                        ),
+                    }
+                try:
+                    json2_client.test_connection()
+                    selected_client = json2_client
+                    auth_message = "Authenticated using JSON-2"
+                except Exception as e:
+                    short_error = self._extract_short_error(e)
+                    return {
+                        "status": "error",
+                        "message": (
+                            f"Odoo {odoo_version}. Supports: {supports_str}. "
+                            f"Authentication failed using JSON-2 ({short_error})"
+                        ),
+                    }
+            else:  # xmlrpc (default)
+                if not protocols_available["XML-RPC"]:
+                    return {
+                        "status": "error",
+                        "message": (
+                            f"Odoo {odoo_version}. Supports: {supports_str}. "
+                            "XML-RPC not available on this instance"
+                        ),
+                    }
+                try:
+                    xmlrpc_client.test_connection()
+                    selected_client = xmlrpc_client
+                    auth_message = "Authenticated using XML-RPC"
+                except Exception as e:
+                    short_error = self._extract_short_error(e)
+                    return {
+                        "status": "error",
+                        "message": (
+                            f"Odoo {odoo_version}. Supports: {supports_str}. "
+                            f"Authentication failed using XML-RPC ({short_error})"
+                        ),
+                    }
+
+            # Step 4: Get model count
+            model_suffix = ""
+            try:
+                models = selected_client.list_models()
+                model_suffix = f", {len(models)} models"
+            except Exception as e:
+                logging.warning(f"Could not fetch model count: {e}")
+
+            # Step 5: Build final success message
+            message = f"Odoo {odoo_version}. Supports: {supports_str}. {auth_message}{model_suffix}"
+
+            return {"status": "success", "message": message}
 
         except UserException as e:
             raise e
@@ -290,7 +416,7 @@ class Component(ComponentBase):
                 raise UserException("Connection credentials required to load models")
 
             # Initialize client and fetch models
-            client = OdooClient(
+            client = XmlRpcClient(
                 url=odoo_url,
                 database=database,
                 username=username,
@@ -355,7 +481,7 @@ class Component(ComponentBase):
                 raise UserException("Please select a model first")
 
             # Initialize client and fetch fields
-            client = OdooClient(
+            client = XmlRpcClient(
                 url=odoo_url,
                 database=database,
                 username=username,

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from component import Component
 from configuration import Configuration, OdooEndpoint
-from odoo_client import OdooClient
+from clients.xmlrpc_client import XmlRpcClient
 
 
 class TestConfiguration(unittest.TestCase):
@@ -62,17 +62,17 @@ class TestConfiguration(unittest.TestCase):
             )
 
 
-class TestOdooClient(unittest.TestCase):
+class TestXmlRpcClient(unittest.TestCase):
     """Test Odoo client."""
 
-    @patch("odoo_client.xmlrpc.client.ServerProxy")
+    @patch("clients.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_authentication_success(self, mock_server: Mock) -> None:
         """Test successful authentication."""
         mock_common = MagicMock()
         mock_common.authenticate.return_value = 123
         mock_server.return_value = mock_common
 
-        client = OdooClient(
+        client = XmlRpcClient(
             url="https://demo.odoo.com",
             database="demo",
             username="admin",
@@ -83,13 +83,13 @@ class TestOdooClient(unittest.TestCase):
         uid = client.authenticate()
         self.assertEqual(uid, 123)
 
-    @patch("odoo_client.xmlrpc.client.ServerProxy")
+    @patch("clients.xmlrpc_client.xmlrpc.client.ServerProxy")
     def test_search_read(self, mock_server: Mock) -> None:
         """Test search_read method."""
         mock_models = MagicMock()
         mock_models.execute_kw.return_value = [{"id": 1, "name": "Test Partner"}]
 
-        client = OdooClient(
+        client = XmlRpcClient(
             url="https://demo.odoo.com",
             database="demo",
             username="admin",

@@ -12,7 +12,7 @@ from typing import Any
 from keboola.component.exceptions import UserException
 
 
-class OdooClient:
+class XmlRpcClient:
     """Client for interacting with Odoo XML-RPC API."""
 
     def __init__(self, url: str, database: str, username: str, api_key: str) -> None:
@@ -216,15 +216,15 @@ class OdooClient:
         except Exception as e:
             raise UserException(f"Failed to list models: {str(e)}")
 
-    def test_connection(self) -> bool:
+    def get_version(self) -> str:
         """
-        Test connection and authentication.
+        Get Odoo version (no authentication required).
 
         Returns:
-            True if connection successful
+            Version string (e.g., "18.0", "19.0")
 
         Raises:
-            UserException: If connection fails
+            UserException: If version check fails
         """
         try:
             version_info = self.common.version()
@@ -234,11 +234,33 @@ class OdooClient:
             else:
                 version = "unknown"
 
-            logging.info(f"Connected to Odoo version: {version}")
+            logging.info(f"Detected Odoo version: {version} via XML-RPC")
+            return version
 
+        except xmlrpc.client.Fault as e:
+            raise UserException(f"XML-RPC version check failed: {e.faultString}")
+        except Exception as e:
+            raise UserException(f"XML-RPC version check failed: {str(e)}")
+
+    def test_connection(self) -> dict[str, str]:
+        """
+        Test connection and authentication.
+
+        Returns:
+            Dict with version and protocol info
+
+        Raises:
+            UserException: If connection fails
+        """
+        try:
+            version = self.get_version()
+
+            # Authenticate to verify credentials
             self.authenticate()
 
-            return True
+            return {"version": version, "protocol": "XML-RPC"}
 
+        except UserException as e:
+            raise e
         except Exception as e:
-            raise UserException(f"Connection test failed: {str(e)}")
+            raise UserException(f"XML-RPC connection failed: {str(e)}")

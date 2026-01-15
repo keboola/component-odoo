@@ -48,6 +48,9 @@ class Configuration(BaseModel):
     database: str = Field(description="Database name")
     username: str = Field(description="Username/email")
     api_key: str = Field(alias="#api_key", description="API key or password")
+    api_protocol: str = Field(
+        default="xmlrpc", description="API protocol: xmlrpc or json2"
+    )
 
     # Extraction configuration
     endpoints: list[OdooEndpoint] = Field(description="List of models to extract")
