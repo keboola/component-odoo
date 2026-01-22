@@ -196,7 +196,16 @@ class Json2Client:
         try:
             fields = self.http_client.post(
                 endpoint_path=f"{model}/fields_get",
-                json={"attributes": ["string", "type", "help", "required"]},
+                json={
+                    "attributes": [
+                        "string",
+                        "type",
+                        "help",
+                        "required",
+                        "relation",
+                        "relation_field",
+                    ]
+                },
                 timeout=30,
             )
 

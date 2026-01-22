@@ -7,6 +7,7 @@ Uses modern Python 3.9+ type hints and clean orchestrator pattern.
 
 import csv
 import logging
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,18 @@ PROTOCOL_JSON2 = "json2"
 PROTOCOL_XMLRPC = "xmlrpc"
 DISPLAY_JSON2 = "JSON-2"
 DISPLAY_XMLRPC = "XML-RPC"
+
+
+@dataclass
+class MetadataRow:
+    """Schema metadata row for documenting field types and relationships."""
+
+    field_name: str
+    field_type: str
+    target_model: str
+    location: str
+    source_column: str
+    target_column: str
 
 
 class Component(ComponentBase):
@@ -123,8 +136,17 @@ class Component(ComponentBase):
             order=endpoint.order or "id asc",
         )
 
+        # Handle no records case with early return
         if not records:
             logging.warning(f"No records found for {endpoint.model}")
+            # Still create metadata file to document schema
+            self._write_metadata_file(
+                endpoint.model,
+                endpoint.table_name,
+                [],
+                {},
+                endpoint,
+            )
             return
 
         # Create output table
@@ -134,12 +156,42 @@ class Component(ComponentBase):
             primary_key=endpoint.primary_key or ["id"],
         )
 
-        # Flatten and write data
-        flattened_records = [self._flatten_record(record) for record in records]
-        self._write_csv(Path(table.full_path), flattened_records)
+        # Split records into main table and relationship tables
+        main_records, relationship_tables = self._split_records(
+            records, endpoint.model, endpoint.table_name
+        )
 
-        # Save manifest
+        # Write main table
+        self._write_csv(Path(table.full_path), main_records)
+
+        # Save manifest for main table
         self.write_manifest(table)
+
+        # Write relationship tables (if any)
+        for rel_table_name, rel_records in relationship_tables.items():
+            if rel_records:  # Only create table if there are records
+                rel_table = self.create_out_table_definition(
+                    name=rel_table_name,
+                    incremental=False,  # Relationship tables always full refresh
+                    primary_key=[],  # No primary key for relationship tables
+                )
+                self._write_csv(Path(rel_table.full_path), rel_records)
+                self.write_manifest(rel_table)
+                logging.info(
+                    f"Wrote {len(rel_records)} relationship records to {rel_table_name}"
+                )
+
+        # Write metadata file describing schema and relationships
+        main_table_fields = list(main_records[0].keys()) if main_records else []
+        self._write_metadata_file(
+            endpoint.model,
+            endpoint.table_name,
+            main_table_fields,
+            relationship_tables,
+            endpoint,
+        )
+
+        logging.info(f"Wrote {len(records)} records to {endpoint.table_name}")
 
         # Update state for incremental loading
         if endpoint.incremental and records:
@@ -159,43 +211,107 @@ class Component(ComponentBase):
             # Note: State is written once at the end of run(), not here
             logging.info(f"Updated state: last_id = {max_id}")
 
-        logging.info(f"Wrote {len(records)} records to {endpoint.table_name}")
-
     @staticmethod
-    def _flatten_record(record: dict[str, Any]) -> dict[str, Any]:
+    def _split_records(
+        records: list[dict[str, Any]],
+        model_name: str,
+        table_name: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
         """
-        Flatten nested Odoo record structures.
+        Split records into main table and relationship tables.
 
-        Odoo returns many2one fields as [id, name] tuples.
-        This converts them to separate columns.
+        Handles different Odoo field types:
+        - many2one: [id, name] → flattened to field_id, field_name in main table
+        - many2many/one2many: [id1, id2, ...] → separate relationship table
+        - scalar: kept as-is in main table
 
         Args:
-            record: Raw Odoo record
+            records: Raw Odoo records
+            model_name: Odoo model name (e.g., 'res.partner')
+            table_name: Base table name (e.g., 'res_partner.csv')
 
         Returns:
-            Flattened record dictionary
+            Tuple of:
+            - Main table records (many2one flattened, scalars preserved)
+            - Dict of relationship table name → relationship records
+
+        Example:
+            Input: [{"id": 15, "name": "Azure", "category_id": [5], "child_ids": [27,34]}]
+            Output:
+                Main: [{"id": 15, "name": "Azure"}]
+                Relationships: {
+                    "res_partner__category_id.csv": [
+                        {"partner_id": 15, "category_id": 5}
+                    ],
+                    "res_partner__child_ids.csv": [
+                        {"partner_id": 15, "child_id": 27},
+                        {"partner_id": 15, "child_id": 34}
+                    ]
+                }
         """
-        flattened: dict[str, Any] = {}
+        main_records = []
+        relationship_tables: dict[str, list[dict[str, Any]]] = {}
 
-        for key, value in record.items():
-            if (
-                isinstance(value, (list, tuple))
-                and len(value) == 2
-                and isinstance(value[0], int)
-            ):
-                # Many2one field: [id, name]
-                flattened[f"{key}_id"] = value[0]
-                flattened[f"{key}_name"] = value[1]
-            elif isinstance(value, list):
-                # Many2many or one2many: list of IDs
-                flattened[key] = ",".join(str(v) for v in value)
-            elif value is False:
-                # Odoo uses False for null values
-                flattened[key] = None
-            else:
-                flattened[key] = value
+        # Extract foreign key name from model (e.g., 'res.partner' → 'partner_id')
+        # Use the last part of the model name
+        fk_name = model_name.split(".")[-1] + "_id"
 
-        return flattened
+        # Base name for relationship tables (remove .csv extension if present)
+        base_name = table_name.replace(".csv", "")
+
+        for record in records:
+            main_record: dict[str, Any] = {}
+            record_id = record.get("id")
+
+            for key, value in record.items():
+                if (
+                    isinstance(value, (list, tuple))
+                    and len(value) == 2
+                    and isinstance(value[0], int)
+                ):
+                    # many2one field: [id, name] → flatten to main table
+                    main_record[f"{key}_id"] = value[0]
+                    main_record[f"{key}_name"] = value[1]
+
+                elif (
+                    isinstance(value, list)
+                    and value
+                    and all(isinstance(v, int) for v in value)
+                ):
+                    # many2many or one2many: [id1, id2, ...] → split to relationship table
+                    rel_table_name = f"{base_name}__{key}.csv"
+
+                    if rel_table_name not in relationship_tables:
+                        relationship_tables[rel_table_name] = []
+
+                    # Determine relationship field name (remove trailing _ids if present)
+                    rel_field_name = key.rstrip("s") if key.endswith("_ids") else key
+                    if not rel_field_name.endswith("_id"):
+                        rel_field_name = key.replace("_ids", "_id")
+
+                    # Create relationship records
+                    for rel_id in value:
+                        relationship_tables[rel_table_name].append(
+                            {fk_name: record_id, rel_field_name: rel_id}
+                        )
+                    # Don't include this field in main record
+
+                elif isinstance(value, list):
+                    # Empty list or non-integer list → skip
+                    # Don't add to main table or relationship table
+                    pass
+
+                elif value is False:
+                    # Odoo uses False for null values
+                    main_record[key] = None
+
+                else:
+                    # Regular scalar field
+                    main_record[key] = value
+
+            main_records.append(main_record)
+
+        return main_records, relationship_tables
 
     @staticmethod
     def _write_csv(file_path: Path, records: list[dict[str, Any]]) -> None:
@@ -227,6 +343,133 @@ class Component(ComponentBase):
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(records)
+
+    def _write_metadata_file(
+        self,
+        model_name: str,
+        table_name: str,
+        main_table_fields: list[str],
+        relationship_tables: dict[str, list[dict[str, Any]]],
+        endpoint: OdooEndpoint,
+    ) -> None:
+        """
+        Write metadata CSV file describing field types and relationships.
+
+        Creates __metadata__{model}.csv file with schema information to help users
+        understand field types and build SQL joins between main and relationship tables.
+
+        Args:
+            model_name: Odoo model name (e.g., 'res.partner')
+            table_name: Main table name (e.g., 'res_partner')
+            main_table_fields: List of field names in the main table
+            relationship_tables: Dict of relationship table names → records
+            endpoint: Endpoint configuration with field selection
+        """
+        if not self.client:
+            raise UserException("Odoo client not initialized")
+
+        # Get field metadata from Odoo
+        all_fields = self.client.get_model_fields(model_name)
+
+        # Determine which fields to document
+        if main_table_fields:
+            # We have records - document fields that appear in main table
+            fields_to_document = main_table_fields
+        elif endpoint.fields:
+            # No records but user selected specific fields - document those
+            fields_to_document = endpoint.fields
+        else:
+            # No records and no field selection - document all Odoo fields
+            fields_to_document = list(all_fields.keys())
+
+        # Build metadata rows
+        metadata_rows: list[MetadataRow] = []
+
+        # Process each field
+        for field_name in fields_to_document:
+            # Skip flattened many2one fields (_id, _name suffixes) - we'll handle them separately
+            if field_name.endswith("_id") or field_name.endswith("_name"):
+                # Check if this is a flattened many2one field
+                original_field = field_name.rsplit("_", 1)[0]
+                if (
+                    original_field in all_fields
+                    and all_fields[original_field].get("type") == "many2one"
+                ):
+                    # This is a flattened field, skip it here
+                    continue
+
+            field_meta = all_fields.get(field_name, {})
+            field_type = field_meta.get("type", "")
+            relation = field_meta.get("relation", "")
+
+            if field_type == "many2one":
+                # Many2one: Create 3 rows (original + _id + _name flattened columns)
+                metadata_rows.append(
+                    MetadataRow(
+                        field_name,
+                        field_type,
+                        relation,
+                        f"{table_name}.csv",
+                        f"{field_name}_id",
+                        "",
+                    )
+                )
+                metadata_rows.append(
+                    MetadataRow(
+                        f"{field_name}_id", "integer", "", f"{table_name}.csv", "", ""
+                    )
+                )
+                metadata_rows.append(
+                    MetadataRow(
+                        f"{field_name}_name", "char", "", f"{table_name}.csv", "", ""
+                    )
+                )
+
+            elif field_type in ("many2many", "one2many"):
+                # Many2many/one2many: Check if relationship table exists
+                rel_table_name = f"{table_name}__{field_name}.csv"
+                if rel_table_name in relationship_tables:
+                    # Determine relationship column name
+                    rel_field_name = (
+                        field_name.rstrip("s")
+                        if field_name.endswith("_ids")
+                        else field_name
+                    )
+                    if not rel_field_name.endswith("_id"):
+                        rel_field_name = field_name.replace("_ids", "_id")
+
+                    # Determine source FK name
+                    fk_name = model_name.split(".")[-1] + "_id"
+
+                    metadata_rows.append(
+                        MetadataRow(
+                            field_name,
+                            field_type,
+                            relation,
+                            rel_table_name,
+                            fk_name,
+                            rel_field_name,
+                        )
+                    )
+
+            else:
+                # Scalar field
+                metadata_rows.append(
+                    MetadataRow(field_name, field_type, "", f"{table_name}.csv", "", "")
+                )
+
+        # Write metadata CSV
+        metadata_path = Path(self.tables_out_path) / f"__metadata__{table_name}.csv"
+        fieldnames = [field.name for field in fields(MetadataRow)]
+
+        with open(metadata_path, mode="w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows([asdict(row) for row in metadata_rows])
+
+        logging.info(
+            f"Wrote metadata file: __metadata__{table_name}.csv ({len(metadata_rows)} fields)"
+        )
 
     # === Helper Methods ===
 

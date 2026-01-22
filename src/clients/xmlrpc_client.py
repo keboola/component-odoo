@@ -155,13 +155,22 @@ class XmlRpcClient:
 
         try:
             result = self.models.execute_kw(
-                self.database,
+                self.db,
                 self.uid,
-                self.api_key,
+                self.password,
                 model,
                 "fields_get",
                 [],
-                {"attributes": ["string", "type", "help", "required"]},
+                {
+                    "attributes": [
+                        "string",
+                        "type",
+                        "help",
+                        "required",
+                        "relation",
+                        "relation_field",
+                    ]
+                },
             )
 
             if not isinstance(result, dict):
