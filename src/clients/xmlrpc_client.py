@@ -32,12 +32,8 @@ class XmlRpcClient:
         self.uid: int | None = None
 
         # Initialize XML-RPC endpoints
-        self.common: xmlrpc.client.ServerProxy = xmlrpc.client.ServerProxy(
-            f"{self.url}/xmlrpc/2/common"
-        )
-        self.models: xmlrpc.client.ServerProxy = xmlrpc.client.ServerProxy(
-            f"{self.url}/xmlrpc/2/object"
-        )
+        self.common: xmlrpc.client.ServerProxy = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/common")
+        self.models: xmlrpc.client.ServerProxy = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/object")
 
         logging.info(f"Initialized Odoo client for {self.url}")
 
@@ -52,14 +48,10 @@ class XmlRpcClient:
             UserException: If authentication fails
         """
         try:
-            uid = self.common.authenticate(
-                self.database, self.username, self.api_key, {}
-            )
+            uid = self.common.authenticate(self.database, self.username, self.api_key, {})
 
             if not uid or not isinstance(uid, int):
-                raise UserException(
-                    "Authentication failed. Please check your credentials."
-                )
+                raise UserException("Authentication failed. Please check your credentials.")
 
             self.uid = uid
             logging.info(f"Successfully authenticated as user ID: {self.uid}")
@@ -124,9 +116,7 @@ class XmlRpcClient:
 
             # Ensure we got a list back
             if not isinstance(result, list):
-                raise UserException(
-                    f"Unexpected response type from Odoo: {type(result)}"
-                )
+                raise UserException(f"Unexpected response type from Odoo: {type(result)}")
 
             records: list[dict[str, Any]] = result
             logging.info(f"Retrieved {len(records)} records from {model}")
@@ -174,9 +164,7 @@ class XmlRpcClient:
             )
 
             if not isinstance(result, dict):
-                raise UserException(
-                    f"Unexpected response type from Odoo: {type(result)}"
-                )
+                raise UserException(f"Unexpected response type from Odoo: {type(result)}")
 
             fields: dict[str, dict[str, Any]] = result
             logging.info(f"Retrieved field definitions for {model}")
@@ -221,9 +209,7 @@ class XmlRpcClient:
             )
 
             if not isinstance(result, list):
-                raise UserException(
-                    f"Unexpected response type from Odoo: {type(result)}"
-                )
+                raise UserException(f"Unexpected response type from Odoo: {type(result)}")
 
             models: list[dict[str, Any]] = result
             logging.info(f"Retrieved {len(models)} Odoo models")

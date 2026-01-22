@@ -83,9 +83,7 @@ class Component(ComponentBase):
         Returns:
             Initialized XmlRpcClient or Json2Client based on api_protocol setting
         """
-        ClientClass = (
-            Json2Client if params.api_protocol == PROTOCOL_JSON2 else XmlRpcClient
-        )
+        ClientClass = Json2Client if params.api_protocol == PROTOCOL_JSON2 else XmlRpcClient
 
         return ClientClass(
             url=params.odoo_url,
@@ -157,9 +155,7 @@ class Component(ComponentBase):
         )
 
         # Split records into main table and relationship tables
-        main_records, relationship_tables = self._split_records(
-            records, endpoint.model, endpoint.table_name
-        )
+        main_records, relationship_tables = self._split_records(records, endpoint.model, endpoint.table_name)
 
         # Write main table
         self._write_csv(Path(table.full_path), main_records)
@@ -177,9 +173,7 @@ class Component(ComponentBase):
                 )
                 self._write_csv(Path(rel_table.full_path), rel_records)
                 self.write_manifest(rel_table)
-                logging.info(
-                    f"Wrote {len(rel_records)} relationship records to {rel_table_name}"
-                )
+                logging.info(f"Wrote {len(rel_records)} relationship records to {rel_table_name}")
 
         # Write metadata file describing schema and relationships
         main_table_fields = list(main_records[0].keys()) if main_records else []
@@ -195,11 +189,7 @@ class Component(ComponentBase):
 
         # Update state for incremental loading
         if endpoint.incremental and records:
-            max_id = max(
-                record.get("id", 0)
-                for record in records
-                if isinstance(record.get("id"), int)
-            )
+            max_id = max(record.get("id", 0) for record in records if isinstance(record.get("id"), int))
 
             # Update nested state structure in shared self.state
             if "endpoints" not in self.state:
@@ -264,20 +254,12 @@ class Component(ComponentBase):
             record_id = record.get("id")
 
             for key, value in record.items():
-                if (
-                    isinstance(value, (list, tuple))
-                    and len(value) == 2
-                    and isinstance(value[0], int)
-                ):
+                if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], int):
                     # many2one field: [id, name] → flatten to main table
                     main_record[f"{key}_id"] = value[0]
                     main_record[f"{key}_name"] = value[1]
 
-                elif (
-                    isinstance(value, list)
-                    and value
-                    and all(isinstance(v, int) for v in value)
-                ):
+                elif isinstance(value, list) and value and all(isinstance(v, int) for v in value):
                     # many2many or one2many: [id1, id2, ...] → split to relationship table
                     rel_table_name = f"{base_name}__{key}.csv"
 
@@ -291,9 +273,7 @@ class Component(ComponentBase):
 
                     # Create relationship records
                     for rel_id in value:
-                        relationship_tables[rel_table_name].append(
-                            {fk_name: record_id, rel_field_name: rel_id}
-                        )
+                        relationship_tables[rel_table_name].append({fk_name: record_id, rel_field_name: rel_id})
                     # Don't include this field in main record
 
                 elif isinstance(value, list):
@@ -391,10 +371,7 @@ class Component(ComponentBase):
             if field_name.endswith("_id") or field_name.endswith("_name"):
                 # Check if this is a flattened many2one field
                 original_field = field_name.rsplit("_", 1)[0]
-                if (
-                    original_field in all_fields
-                    and all_fields[original_field].get("type") == "many2one"
-                ):
+                if original_field in all_fields and all_fields[original_field].get("type") == "many2one":
                     # This is a flattened field, skip it here
                     continue
 
@@ -414,27 +391,15 @@ class Component(ComponentBase):
                         "",
                     )
                 )
-                metadata_rows.append(
-                    MetadataRow(
-                        f"{field_name}_id", "integer", "", f"{table_name}.csv", "", ""
-                    )
-                )
-                metadata_rows.append(
-                    MetadataRow(
-                        f"{field_name}_name", "char", "", f"{table_name}.csv", "", ""
-                    )
-                )
+                metadata_rows.append(MetadataRow(f"{field_name}_id", "integer", "", f"{table_name}.csv", "", ""))
+                metadata_rows.append(MetadataRow(f"{field_name}_name", "char", "", f"{table_name}.csv", "", ""))
 
             elif field_type in ("many2many", "one2many"):
                 # Many2many/one2many: Check if relationship table exists
                 rel_table_name = f"{table_name}__{field_name}.csv"
                 if rel_table_name in relationship_tables:
                     # Determine relationship column name
-                    rel_field_name = (
-                        field_name.rstrip("s")
-                        if field_name.endswith("_ids")
-                        else field_name
-                    )
+                    rel_field_name = field_name.rstrip("s") if field_name.endswith("_ids") else field_name
                     if not rel_field_name.endswith("_id"):
                         rel_field_name = field_name.replace("_ids", "_id")
 
@@ -454,9 +419,7 @@ class Component(ComponentBase):
 
             else:
                 # Scalar field
-                metadata_rows.append(
-                    MetadataRow(field_name, field_type, "", f"{table_name}.csv", "", "")
-                )
+                metadata_rows.append(MetadataRow(field_name, field_type, "", f"{table_name}.csv", "", ""))
 
         # Write metadata CSV
         metadata_path = Path(self.tables_out_path) / f"__metadata__{table_name}.csv"
@@ -467,9 +430,7 @@ class Component(ComponentBase):
             writer.writeheader()
             writer.writerows([asdict(row) for row in metadata_rows])
 
-        logging.info(
-            f"Wrote metadata file: __metadata__{table_name}.csv ({len(metadata_rows)} fields)"
-        )
+        logging.info(f"Wrote metadata file: __metadata__{table_name}.csv ({len(metadata_rows)} fields)")
 
     # === Helper Methods ===
 

@@ -15,9 +15,7 @@ from keboola.http_client import HttpClient
 class Json2Client:
     """Client for interacting with Odoo JSON-2 API (Odoo 19+)."""
 
-    def __init__(
-        self, url: str, database: str, username: str | None, api_key: str
-    ) -> None:
+    def __init__(self, url: str, database: str, username: str | None, api_key: str) -> None:
         """
         Initialize Odoo JSON-2 client.
 
@@ -76,13 +74,9 @@ class Json2Client:
             # Check if it's an HTTP error
             if hasattr(e, "response") and hasattr(e.response, "status_code"):
                 if e.response.status_code == 404:
-                    raise UserException(
-                        "JSON-2 version check failed: HTTP 404 - /web/version endpoint not found"
-                    )
+                    raise UserException("JSON-2 version check failed: HTTP 404 - /web/version endpoint not found")
                 else:
-                    raise UserException(
-                        f"JSON-2 version check failed: HTTP {e.response.status_code}"
-                    )
+                    raise UserException(f"JSON-2 version check failed: HTTP {e.response.status_code}")
             raise UserException(f"JSON-2 version check failed: {str(e)}")
 
     def test_connection(self) -> dict[str, str]:
@@ -117,17 +111,11 @@ class Json2Client:
                 if e.response.status_code == 401:
                     raise UserException("JSON-2 authentication failed: Invalid API key")
                 elif e.response.status_code == 403:
-                    raise UserException(
-                        "JSON-2 authentication failed: Access forbidden"
-                    )
+                    raise UserException("JSON-2 authentication failed: Access forbidden")
                 elif e.response.status_code == 404:
-                    raise UserException(
-                        "JSON-2 API not available (HTTP 404) - Odoo instance may be older than v19"
-                    )
+                    raise UserException("JSON-2 API not available (HTTP 404) - Odoo instance may be older than v19")
                 else:
-                    raise UserException(
-                        f"JSON-2 connection failed: HTTP {e.response.status_code}"
-                    )
+                    raise UserException(f"JSON-2 connection failed: HTTP {e.response.status_code}")
             if isinstance(e, UserException):
                 raise e
             raise UserException(f"JSON-2 connection failed: {str(e)}")
@@ -167,15 +155,11 @@ class Json2Client:
                 if e.response.status_code == 401:
                     raise UserException("JSON-2 authentication failed: Invalid API key")
                 elif e.response.status_code == 403:
-                    raise UserException(
-                        "JSON-2 access forbidden: User lacks permission to list models"
-                    )
+                    raise UserException("JSON-2 access forbidden: User lacks permission to list models")
                 elif e.response.status_code == 404:
                     raise UserException("JSON-2 API not available (HTTP 404)")
                 else:
-                    raise UserException(
-                        f"JSON-2 failed to list models: HTTP {e.response.status_code}"
-                    )
+                    raise UserException(f"JSON-2 failed to list models: HTTP {e.response.status_code}")
             if isinstance(e, UserException):
                 raise e
             raise UserException(f"JSON-2 failed to list models: {str(e)}")
@@ -210,9 +194,7 @@ class Json2Client:
             )
 
             if not isinstance(fields, dict):
-                raise UserException(
-                    f"Unexpected response type from Odoo: {type(fields)}"
-                )
+                raise UserException(f"Unexpected response type from Odoo: {type(fields)}")
 
             logging.info(f"Retrieved {len(fields)} fields for {model} via JSON-2")
             return fields
@@ -223,17 +205,11 @@ class Json2Client:
                 if e.response.status_code == 401:
                     raise UserException("JSON-2 authentication failed: Invalid API key")
                 elif e.response.status_code == 403:
-                    raise UserException(
-                        f"JSON-2 access forbidden: User lacks permission to access {model}"
-                    )
+                    raise UserException(f"JSON-2 access forbidden: User lacks permission to access {model}")
                 elif e.response.status_code == 404:
-                    raise UserException(
-                        f"JSON-2 model not found: {model} does not exist or API unavailable"
-                    )
+                    raise UserException(f"JSON-2 model not found: {model} does not exist or API unavailable")
                 else:
-                    raise UserException(
-                        f"JSON-2 failed to get fields for {model}: HTTP {e.response.status_code}"
-                    )
+                    raise UserException(f"JSON-2 failed to get fields for {model}: HTTP {e.response.status_code}")
             if isinstance(e, UserException):
                 raise e
             raise UserException(f"JSON-2 failed to get fields for {model}: {str(e)}")
@@ -278,15 +254,11 @@ class Json2Client:
                 payload["order"] = order
 
             # Make API call
-            records = self.http_client.post(
-                endpoint_path=f"{model}/search_read", json=payload, timeout=30
-            )
+            records = self.http_client.post(endpoint_path=f"{model}/search_read", json=payload, timeout=30)
 
             # Validate response
             if not isinstance(records, list):
-                raise UserException(
-                    f"Unexpected response type from Odoo: {type(records)}"
-                )
+                raise UserException(f"Unexpected response type from Odoo: {type(records)}")
 
             logging.info(f"Retrieved {len(records)} records from {model} via JSON-2")
             return records
@@ -297,17 +269,11 @@ class Json2Client:
                 if e.response.status_code == 401:
                     raise UserException("JSON-2 authentication failed: Invalid API key")
                 elif e.response.status_code == 403:
-                    raise UserException(
-                        f"JSON-2 access forbidden: User lacks permission to access {model}"
-                    )
+                    raise UserException(f"JSON-2 access forbidden: User lacks permission to access {model}")
                 elif e.response.status_code == 404:
-                    raise UserException(
-                        f"JSON-2 model not found: {model} does not exist or API unavailable"
-                    )
+                    raise UserException(f"JSON-2 model not found: {model} does not exist or API unavailable")
                 else:
-                    raise UserException(
-                        f"JSON-2 failed to fetch data from {model}: HTTP {e.response.status_code}"
-                    )
+                    raise UserException(f"JSON-2 failed to fetch data from {model}: HTTP {e.response.status_code}")
             if isinstance(e, UserException):
                 raise e
             raise UserException(f"JSON-2 failed to fetch data from {model}: {str(e)}")

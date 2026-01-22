@@ -17,22 +17,14 @@ PROTOCOL_XMLRPC = "xmlrpc"
 class OdooEndpoint(BaseModel):
     """Configuration for an Odoo model extraction."""
 
-    model: str = Field(
-        description="Odoo model name (e.g., 'res.partner', 'sale.order')"
-    )
-    output_table: str | None = Field(
-        default=None, description="Output table name (auto-generated if not provided)"
-    )
-    fields: list[str] | None = Field(
-        default=None, description="Fields to extract (all if empty)"
-    )
+    model: str = Field(description="Odoo model name (e.g., 'res.partner', 'sale.order')")
+    output_table: str | None = Field(default=None, description="Output table name (auto-generated if not provided)")
+    fields: list[str] | None = Field(default=None, description="Fields to extract (all if empty)")
     domain: list[Any] | None = Field(default=None, description="Odoo domain filter")
     limit: int | None = Field(default=None, description="Maximum records to extract")
     order: str | None = Field(default="id asc", description="Sort order")
     incremental: bool = Field(default=False, description="Enable incremental loading")
-    primary_key: list[str] | None = Field(
-        default=None, description="Primary key columns"
-    )
+    primary_key: list[str] | None = Field(default=None, description="Primary key columns")
 
     @property
     def table_name(self) -> str:
@@ -51,14 +43,10 @@ class Configuration(BaseModel):
     database: str = Field(description="Database name")
     username: str | None = Field(default=None, description="Username/email")
     api_key: str = Field(alias="#api_key", description="API key")
-    api_protocol: str = Field(
-        default=PROTOCOL_XMLRPC, description="API protocol: xmlrpc or json2"
-    )
+    api_protocol: str = Field(default=PROTOCOL_XMLRPC, description="API protocol: xmlrpc or json2")
 
     # Extraction configuration
-    endpoints: list[OdooEndpoint] = Field(
-        default=[], description="List of models to extract"
-    )
+    endpoints: list[OdooEndpoint] = Field(default=[], description="List of models to extract")
 
     # Optional settings
     debug: bool = Field(default=False, description="Enable debug logging")
@@ -74,9 +62,7 @@ class Configuration(BaseModel):
                     error_messages.append(f"{err['loc'][0]}: {err['msg']}")
                 else:
                     error_messages.append(err["msg"])
-            raise UserException(
-                f"Configuration validation error: {', '.join(error_messages)}"
-            )
+            raise UserException(f"Configuration validation error: {', '.join(error_messages)}")
 
         if self.debug:
             logging.getLogger().setLevel(logging.DEBUG)

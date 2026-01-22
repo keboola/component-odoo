@@ -106,9 +106,7 @@ class TestComponent(unittest.TestCase):
             }
         ]
 
-        main_records, rel_tables = Component._split_records(
-            records, "res.partner", "res_partner.csv"
-        )
+        main_records, rel_tables = Component._split_records(records, "res.partner", "res_partner.csv")
 
         self.assertEqual(len(main_records), 1)
         self.assertEqual(main_records[0]["id"], 1)
@@ -118,13 +116,9 @@ class TestComponent(unittest.TestCase):
 
     def test_split_records_many2many(self) -> None:
         """Test many2many fields are split into relationship tables."""
-        records: list[dict[str, Any]] = [
-            {"id": 1, "name": "Test", "tag_ids": [5, 9, 12]}
-        ]
+        records: list[dict[str, Any]] = [{"id": 1, "name": "Test", "tag_ids": [5, 9, 12]}]
 
-        main_records, rel_tables = Component._split_records(
-            records, "res.partner", "res_partner.csv"
-        )
+        main_records, rel_tables = Component._split_records(records, "res.partner", "res_partner.csv")
 
         # Main table should not have tag_ids
         self.assertEqual(len(main_records), 1)
@@ -144,9 +138,7 @@ class TestComponent(unittest.TestCase):
         """Test False values converted to None."""
         records: list[dict[str, Any]] = [{"id": 1, "email": False}]
 
-        main_records, rel_tables = Component._split_records(
-            records, "res.partner", "res_partner.csv"
-        )
+        main_records, rel_tables = Component._split_records(records, "res.partner", "res_partner.csv")
 
         self.assertEqual(len(main_records), 1)
         self.assertIsNone(main_records[0]["email"])
@@ -156,9 +148,7 @@ class TestComponent(unittest.TestCase):
         """Test empty relationship lists don't create tables."""
         records: list[dict[str, Any]] = [{"id": 1, "tag_ids": []}]
 
-        main_records, rel_tables = Component._split_records(
-            records, "res.partner", "res_partner.csv"
-        )
+        main_records, rel_tables = Component._split_records(records, "res.partner", "res_partner.csv")
 
         self.assertEqual(len(main_records), 1)
         self.assertEqual(len(rel_tables), 0)  # No tables for empty lists
@@ -174,9 +164,7 @@ class TestComponent(unittest.TestCase):
             }
         ]
 
-        main_records, rel_tables = Component._split_records(
-            records, "res.partner", "res_partner.csv"
-        )
+        main_records, rel_tables = Component._split_records(records, "res.partner", "res_partner.csv")
 
         # Main table
         self.assertEqual(len(main_records), 1)
@@ -266,14 +254,8 @@ class TestMetadataGeneration(unittest.TestCase):
                 comp._extract_endpoint(endpoint)
 
                 # Verify metadata file was opened for writing
-                metadata_calls = [
-                    call
-                    for call in mock_open.call_args_list
-                    if "__metadata__" in str(call)
-                ]
-                self.assertTrue(
-                    len(metadata_calls) > 0, "Metadata file should be created"
-                )
+                metadata_calls = [call for call in mock_open.call_args_list if "__metadata__" in str(call)]
+                self.assertTrue(len(metadata_calls) > 0, "Metadata file should be created")
 
 
 if __name__ == "__main__":
