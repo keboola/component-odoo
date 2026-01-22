@@ -145,7 +145,17 @@ class Json2Client:
         try:
             models = self.http_client.post(
                 endpoint_path="ir.model/search_read",
-                json={"domain": [], "fields": ["model", "name"]},
+                json={
+                    "domain": [
+                        (
+                            "transient",
+                            "=",
+                            False,
+                        ),  # Filter out wizards/temporary models
+                        ("model", "!=", "_unknown"),  # Filter out placeholder model
+                    ],
+                    "fields": ["model", "name"],
+                },
                 timeout=30,
             )
             logging.info(f"Retrieved {len(models)} models via JSON-2")

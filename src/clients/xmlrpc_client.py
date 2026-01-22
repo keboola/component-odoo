@@ -198,7 +198,16 @@ class XmlRpcClient:
                 self.api_key,
                 "ir.model",
                 "search_read",
-                [[]],  # Empty domain = all models
+                [
+                    [
+                        (
+                            "transient",
+                            "=",
+                            False,
+                        ),  # Filter out wizards/temporary models
+                        ("model", "!=", "_unknown"),  # Filter out placeholder model
+                    ]
+                ],
                 {"fields": ["model", "name"], "order": "name asc"},
             )
 

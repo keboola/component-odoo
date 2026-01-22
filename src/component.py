@@ -440,6 +440,10 @@ class Component(ComponentBase):
 
             dropdown_data = []
             for field_name, field_info in fields_dict.items():
+                # Filter out _unknown placeholder field
+                if field_name == "_unknown":
+                    continue
+
                 field_label = field_info.get("string", field_name)
                 field_type = field_info.get("type", "unknown")
                 dropdown_data.append(
