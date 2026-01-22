@@ -177,7 +177,7 @@ The extractor automatically generates **metadata files** for each model to help 
 
 ### What Are Metadata Files?
 
-For each extracted model, a metadata file is created with the naming pattern `__metadata__{table_name}.csv`. These files document:
+For each extracted model, a metadata file is created with the naming pattern `metadata__{table_name}.csv`. These files document:
 
 - **Field names** and their Odoo types (char, integer, many2one, many2many, etc.)
 - **Relationship targets** (which model a field relates to)
@@ -196,7 +196,7 @@ Metadata files are created even if no records were extracted, so you always have
 - `source_column` - Column name to use in JOIN ON clause (if applicable)
 - `target_column` - Target column name in relationship table (if applicable)
 
-### Example: `__metadata__res_partner.csv`
+### Example: `metadata__res_partner.csv`
 
 ```csv
 field_name,field_type,target_model,location,source_column,target_column
@@ -274,7 +274,7 @@ The metadata file columns tell you everything you need:
 - ✅ Documents the complete schema based on Odoo field metadata
 - ✅ Includes only fields you selected (if using field picker)
 - ✅ Includes all fields if no field selection (extract all)
-- ✅ Prefixed with `__metadata__` so they sort at the top of file lists
+- ✅ Prefixed with `metadata__` for easy identification
 
 ## Incremental Loading
 

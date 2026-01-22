@@ -236,10 +236,13 @@ class TestMetadataGeneration(unittest.TestCase):
                 "tables_out_path",
                 new_callable=lambda: property(lambda self: "/tmp/test_out"),
             ):
-                # Mock table definition
-                mock_table = MagicMock()
-                mock_table.full_path = "/tmp/test_out/res_partner.csv"
-                mock_table_def.return_value = mock_table
+                # Mock table definition - return different paths for different tables
+                def create_mock_table(name, **kwargs):
+                    mock_table = MagicMock()
+                    mock_table.full_path = f"/tmp/test_out/{name}.csv"
+                    return mock_table
+
+                mock_table_def.side_effect = create_mock_table
 
                 # Create endpoint config
                 from configuration import OdooEndpoint
@@ -254,7 +257,7 @@ class TestMetadataGeneration(unittest.TestCase):
                 comp._extract_endpoint(endpoint)
 
                 # Verify metadata file was opened for writing
-                metadata_calls = [call for call in mock_open.call_args_list if "__metadata__" in str(call)]
+                metadata_calls = [call for call in mock_open.call_args_list if "metadata__" in str(call)]
                 self.assertTrue(len(metadata_calls) > 0, "Metadata file should be created")
 
 

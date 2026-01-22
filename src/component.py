@@ -335,7 +335,7 @@ class Component(ComponentBase):
         """
         Write metadata CSV file describing field types and relationships.
 
-        Creates __metadata__{model}.csv file with schema information to help users
+        Creates metadata__{model}.csv file with schema information to help users
         understand field types and build SQL joins between main and relationship tables.
 
         Args:
@@ -381,18 +381,19 @@ class Component(ComponentBase):
 
             if field_type == "many2one":
                 # Many2one: Create 3 rows (original + _id + _name flattened columns)
+                base_table = table_name if table_name.endswith(".csv") else f"{table_name}.csv"
                 metadata_rows.append(
                     MetadataRow(
                         field_name,
                         field_type,
                         relation,
-                        f"{table_name}.csv",
+                        base_table,
                         f"{field_name}_id",
                         "",
                     )
                 )
-                metadata_rows.append(MetadataRow(f"{field_name}_id", "integer", "", f"{table_name}.csv", "", ""))
-                metadata_rows.append(MetadataRow(f"{field_name}_name", "char", "", f"{table_name}.csv", "", ""))
+                metadata_rows.append(MetadataRow(f"{field_name}_id", "integer", "", base_table, "", ""))
+                metadata_rows.append(MetadataRow(f"{field_name}_name", "char", "", base_table, "", ""))
 
             elif field_type in ("many2many", "one2many"):
                 # Many2many/one2many: Check if relationship table exists
@@ -419,18 +420,28 @@ class Component(ComponentBase):
 
             else:
                 # Scalar field
-                metadata_rows.append(MetadataRow(field_name, field_type, "", f"{table_name}.csv", "", ""))
+                base_table = table_name if table_name.endswith(".csv") else f"{table_name}.csv"
+                metadata_rows.append(MetadataRow(field_name, field_type, "", base_table, "", ""))
+
+        # Create table definition for metadata file
+        metadata_table = self.create_out_table_definition(
+            name=f"metadata__{table_name}",
+            incremental=False,
+            primary_key=[],
+        )
 
         # Write metadata CSV
-        metadata_path = Path(self.tables_out_path) / f"__metadata__{table_name}.csv"
         fieldnames = [field.name for field in fields(MetadataRow)]
 
-        with open(metadata_path, mode="w", encoding="utf-8", newline="") as f:
+        with open(metadata_table.full_path, mode="w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows([asdict(row) for row in metadata_rows])
 
-        logging.info(f"Wrote metadata file: __metadata__{table_name}.csv ({len(metadata_rows)} fields)")
+        # Write manifest for metadata file
+        self.write_manifest(metadata_table)
+
+        logging.info(f"Wrote metadata file: metadata__{table_name}.csv ({len(metadata_rows)} fields)")
 
     # === Helper Methods ===
 
