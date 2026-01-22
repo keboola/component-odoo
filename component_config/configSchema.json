@@ -96,7 +96,7 @@
             "type": "array",
             "format": "select",
             "title": "Fields to Extract",
-            "description": "Fields to extract from the model",
+            "description": "Select specific fields to extract, or leave empty to extract all available fields",
             "propertyOrder": 20,
             "enum": [],
             "items": {
