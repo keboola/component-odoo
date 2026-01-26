@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from clients.xmlrpc_client import XmlRpcClient
 from component import Component
-from configuration import Configuration, OdooEndpoint
+from configuration import Configuration
 
 
 class TestConfiguration(unittest.TestCase):
@@ -23,10 +23,11 @@ class TestConfiguration(unittest.TestCase):
             database="demo",
             username="admin",
             api_key="test123",
-            endpoints=[OdooEndpoint(model="res.partner", output_table="partners.csv")],
+            model="res.partner",
         )
         self.assertEqual(config.odoo_url, "https://demo.odoo.com")
-        self.assertEqual(len(config.endpoints), 1)
+        self.assertEqual(config.model, "res.partner")
+        self.assertEqual(config.table_name, "res_partner.csv")
 
     def test_url_validation_invalid(self) -> None:
         """Test URL validation rejects invalid URLs."""
@@ -36,7 +37,7 @@ class TestConfiguration(unittest.TestCase):
                 database="demo",
                 username="admin",
                 api_key="test",
-                endpoints=[OdooEndpoint(model="test", output_table="test.csv")],
+                model="res.partner",
             )
 
     def test_trailing_slash_removed(self) -> None:
@@ -46,7 +47,7 @@ class TestConfiguration(unittest.TestCase):
             database="demo",
             username="admin",
             api_key="test",
-            endpoints=[OdooEndpoint(model="test", output_table="test.csv")],
+            model="res.partner",
         )
         self.assertEqual(config.odoo_url, "https://demo.odoo.com")
 
@@ -244,17 +245,18 @@ class TestMetadataGeneration(unittest.TestCase):
 
                 mock_table_def.side_effect = create_mock_table
 
-                # Create endpoint config
-                from configuration import OdooEndpoint
-
-                endpoint = OdooEndpoint(
+                # Set config
+                comp.config = Configuration(
+                    odoo_url="https://demo.odoo.com",
+                    database="demo",
+                    username="admin",
+                    api_key="test123",
                     model="res.partner",
-                    output_table="res_partner",
                     fields=["id", "name", "country_id", "category_id"],
                 )
 
                 # Run extraction
-                comp._extract_endpoint(endpoint)
+                comp._extract_with_paging()
 
                 # Verify metadata file was opened for writing
                 metadata_calls = [call for call in mock_open.call_args_list if "metadata__" in str(call)]

@@ -17,7 +17,7 @@ from keboola.component.sync_actions import SelectElement
 
 from clients.json2_client import Json2Client
 from clients.xmlrpc_client import XmlRpcClient
-from configuration import Configuration, OdooEndpoint
+from configuration import Configuration
 
 PROTOCOL_JSON2 = "json2"
 PROTOCOL_XMLRPC = "xmlrpc"
@@ -53,23 +53,15 @@ class Component(ComponentBase):
         self.client = self._initialize_client(self.config)
 
     def run(self) -> None:
-        """
-        Main extraction logic - clean orchestrator.
+        """Main extraction logic."""
+        if not self.config.model:
+            raise UserException("No model configured")
 
-        Orchestrates the extraction workflow by delegating to well-named methods.
-        Keeps this method concise (~20-30 lines) for readability.
-        """
         self._validate_config_for_run()
-
-        if not self.config.endpoints:
-            raise UserException("No endpoints configured")
-
         self._test_connection()
 
         self.state = self.get_state_file()
-
-        for endpoint in self.config.endpoints:
-            self._extract_endpoint(endpoint)
+        self._extract_with_paging()
 
         if self.state:
             self.write_state_file(self.state)
@@ -96,15 +88,7 @@ class Component(ComponentBase):
         )
 
     def _validate_config_for_run(self) -> None:
-        """
-        Validate configuration before data extraction.
-
-        Only called during run() - NOT during sync actions.
-        Ensures all required fields are present for actual data extraction.
-
-        Raises:
-            UserException: If required fields are missing
-        """
+        """Validate configuration before data extraction."""
         errors = []
 
         if not self.config.database:
@@ -116,24 +100,11 @@ class Component(ComponentBase):
         if self.config.api_protocol == PROTOCOL_XMLRPC and not self.config.username:
             errors.append("Username is required for XML-RPC")
 
-        if errors:
-            raise UserException(
-                f"Configuration incomplete: {'; '.join(errors)}. "
-                "Please complete the configuration before running data extraction."
-            )
-
-        if not self.config.endpoints:
-            raise UserException("At least one endpoint must be configured")
-
-        for idx, endpoint in enumerate(self.config.endpoints):
-            if not endpoint.model:
-                errors.append(f"Endpoint {idx + 1}: Model name is required")
+        if not self.config.model:
+            errors.append("Model name is required")
 
         if errors:
-            raise UserException(
-                f"Configuration incomplete: {'; '.join(errors)}. "
-                "Please complete the configuration before running data extraction."
-            )
+            raise UserException(f"Configuration incomplete: {'; '.join(errors)}")
 
     def _test_connection(self) -> None:
         """Test Odoo connection and authentication."""
@@ -141,108 +112,109 @@ class Component(ComponentBase):
             logging.info("Testing Odoo connection...")
             self.client.test_connection()
 
-    def _extract_endpoint(self, endpoint: OdooEndpoint) -> None:
-        """
-        Extract data from a single Odoo model endpoint.
+    def _extract_with_paging(self) -> None:
+        """Extract data with pagination support."""
+        logging.info(f"Extracting {self.config.model} -> {self.config.table_name}")
 
-        Args:
-            endpoint: Endpoint configuration
-        """
-        logging.info(f"Extracting {endpoint.model} -> {endpoint.table_name}")
+        last_id = self.state.get("last_id", 0)
+        offset = self.state.get("offset", 0)
+        completed = self.state.get("completed", False)
 
-        # Get state for incremental loading (use shared self.state)
-        # Use nested structure: state["endpoints"][table_name]["last_id"]
-        if not endpoint.incremental:
-            last_id = 0
-        else:
-            endpoints_state = self.state.get("endpoints", {})
-            endpoint_state = endpoints_state.get(endpoint.table_name, {})
-            last_id = endpoint_state.get("last_id", 0)
+        if completed and not self.config.incremental:
+            offset = 0
+            completed = False
 
-        # Build domain filter
-        domain = endpoint.domain or []
-        if endpoint.incremental and last_id:
+        domain = self.config.get_domain()
+        if self.config.incremental and last_id:
             domain.append(("id", ">", last_id))
             logging.info(f"Incremental load: fetching records with id > {last_id}")
 
-        # Fetch data from Odoo
-        if not self.client:
-            raise UserException("Odoo client not initialized")
-
-        records = self.client.search_read(
-            model=endpoint.model,
-            domain=domain,
-            fields=endpoint.fields,
-            limit=endpoint.limit,
-            order=endpoint.order or "id asc",
-        )
-
-        # Handle no records case with early return
-        if not records:
-            logging.warning(f"No records found for {endpoint.model}")
-            # Still create metadata file to document schema
-            self._write_metadata_file(
-                endpoint.model,
-                endpoint.table_name,
-                [],
-                {},
-                endpoint,
-            )
-            return
-
-        # Create output table
         table = self.create_out_table_definition(
-            name=endpoint.table_name,
-            incremental=endpoint.incremental,
-            primary_key=endpoint.primary_key or ["id"],
+            name=self.config.table_name,
+            incremental=self.config.incremental,
+            primary_key=["id"],
         )
 
-        # Split records into main table and relationship tables
-        main_records, relationship_tables = self._split_records(records, endpoint.model, endpoint.table_name)
+        page_num = (offset // self.config.page_size) + 1
+        total_records = 0
+        max_id_seen = last_id
+        all_relationship_tables: dict[str, list[dict[str, Any]]] = {}
 
-        # Write main table
-        self._write_csv(Path(table.full_path), main_records)
+        while True:
+            logging.info(f"Fetching page {page_num} (offset {offset}, limit {self.config.page_size})")
 
-        # Save manifest for main table
+            records = self.client.search_read(
+                model=self.config.model,
+                domain=domain,
+                fields=self.config.fields,
+                limit=self.config.page_size,
+                offset=offset,
+                order="id asc",
+            )
+
+            if not records:
+                logging.info("No more records to fetch")
+                completed = True
+                break
+
+            main_records, relationship_tables = self._split_records(records, self.config.model, self.config.table_name)
+
+            mode = "a" if offset > 0 else "w"
+            self._write_csv(Path(table.full_path), main_records, mode=mode)
+
+            for rel_table_name, rel_records in relationship_tables.items():
+                if rel_table_name not in all_relationship_tables:
+                    all_relationship_tables[rel_table_name] = []
+                all_relationship_tables[rel_table_name].extend(rel_records)
+
+            if self.config.incremental:
+                page_max_id = max(r.get("id", 0) for r in records if isinstance(r.get("id"), int))
+                max_id_seen = max(max_id_seen, page_max_id)
+
+            total_records += len(records)
+            offset += len(records)
+            page_num += 1
+
+            self.state["offset"] = offset
+            if self.config.incremental:
+                self.state["last_id"] = max_id_seen
+            self.state["completed"] = False
+
+            if len(records) < self.config.page_size:
+                completed = True
+                break
+
+        self.state["completed"] = completed
+        self.state["offset"] = 0
+
         self.write_manifest(table)
 
-        # Write relationship tables (if any)
-        for rel_table_name, rel_records in relationship_tables.items():
-            if rel_records:  # Only create table if there are records
+        for rel_table_name, rel_records in all_relationship_tables.items():
+            if rel_records:
                 rel_table = self.create_out_table_definition(
                     name=rel_table_name,
-                    incremental=False,  # Relationship tables always full refresh
-                    primary_key=[],  # No primary key for relationship tables
+                    incremental=False,
+                    primary_key=[],
                 )
                 self._write_csv(Path(rel_table.full_path), rel_records)
                 self.write_manifest(rel_table)
                 logging.info(f"Wrote {len(rel_records)} relationship records to {rel_table_name}")
 
-        # Write metadata file describing schema and relationships
-        main_table_fields = list(main_records[0].keys()) if main_records else []
-        self._write_metadata_file(
-            endpoint.model,
-            endpoint.table_name,
-            main_table_fields,
-            relationship_tables,
-            endpoint,
-        )
+        if total_records > 0:
+            main_table_fields = []
+            if Path(table.full_path).exists():
+                with open(Path(table.full_path), "r", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    main_table_fields = list(reader.fieldnames or [])
 
-        logging.info(f"Wrote {len(records)} records to {endpoint.table_name}")
+            self._write_metadata_file(
+                self.config.model,
+                self.config.table_name,
+                main_table_fields,
+                all_relationship_tables,
+            )
 
-        # Update state for incremental loading
-        if endpoint.incremental and records:
-            max_id = max(record.get("id", 0) for record in records if isinstance(record.get("id"), int))
-
-            # Update nested state structure in shared self.state
-            if "endpoints" not in self.state:
-                self.state["endpoints"] = {}
-            if endpoint.table_name not in self.state["endpoints"]:
-                self.state["endpoints"][endpoint.table_name] = {}
-
-            self.state["endpoints"][endpoint.table_name]["last_id"] = max_id
-            # Note: State is written once at the end of run(), not here
-            logging.info(f"Updated state: last_id = {max_id}")
+        logging.info(f"Wrote {total_records} total records to {self.config.table_name}")
 
     @staticmethod
     def _split_records(
@@ -337,34 +309,33 @@ class Component(ComponentBase):
         return main_records, relationship_tables
 
     @staticmethod
-    def _write_csv(file_path: Path, records: list[dict[str, Any]]) -> None:
-        """
-        Write records to CSV file.
-
-        Args:
-            file_path: Output CSV file path
-            records: List of records to write
-        """
+    def _write_csv(file_path: Path, records: list[dict[str, Any]], mode: str = "w") -> None:
+        """Write records to CSV file."""
         if not records:
             return
 
-        # Preserve field order from first record, then add any additional fields
-        # This keeps Odoo's original field order instead of alphabetical
+        file_exists = file_path.exists() and file_path.stat().st_size > 0
+        write_header = not file_exists or mode == "w"
+
         fieldnames = list(records[0].keys())
 
-        # Add any fields that appear in other records but not in first record
-        all_keys: set[str] = set()
-        for record in records:
-            all_keys.update(record.keys())
+        if mode == "a" and file_exists:
+            with open(file_path, mode="r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                existing_fieldnames = list(reader.fieldnames or [])
+                fieldnames = existing_fieldnames + [f for f in fieldnames if f not in existing_fieldnames]
+        else:
+            all_keys: set[str] = set()
+            for record in records:
+                all_keys.update(record.keys())
+            for key in all_keys:
+                if key not in fieldnames:
+                    fieldnames.append(key)
 
-        for key in all_keys:
-            if key not in fieldnames:
-                fieldnames.append(key)
-
-        # Write CSV
-        with open(file_path, mode="w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
+        with open(file_path, mode=mode, encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            if write_header:
+                writer.writeheader()
             writer.writerows(records)
 
     def _write_metadata_file(
@@ -373,36 +344,18 @@ class Component(ComponentBase):
         table_name: str,
         main_table_fields: list[str],
         relationship_tables: dict[str, list[dict[str, Any]]],
-        endpoint: OdooEndpoint,
     ) -> None:
-        """
-        Write metadata CSV file describing field types and relationships.
-
-        Creates metadata__{model}.csv file with schema information to help users
-        understand field types and build SQL joins between main and relationship tables.
-
-        Args:
-            model_name: Odoo model name (e.g., 'res.partner')
-            table_name: Main table name (e.g., 'res_partner')
-            main_table_fields: List of field names in the main table
-            relationship_tables: Dict of relationship table names → records
-            endpoint: Endpoint configuration with field selection
-        """
+        """Write metadata CSV file describing field types and relationships."""
         if not self.client:
             raise UserException("Odoo client not initialized")
 
-        # Get field metadata from Odoo
         all_fields = self.client.get_model_fields(model_name)
 
-        # Determine which fields to document
         if main_table_fields:
-            # We have records - document fields that appear in main table
             fields_to_document = main_table_fields
-        elif endpoint.fields:
-            # No records but user selected specific fields - document those
-            fields_to_document = endpoint.fields
+        elif self.config.fields:
+            fields_to_document = self.config.fields
         else:
-            # No records and no field selection - document all Odoo fields
             fields_to_document = list(all_fields.keys())
 
         # Build metadata rows
@@ -674,23 +627,9 @@ class Component(ComponentBase):
 
     @sync_action("listFields")
     def list_fields_action(self) -> list[SelectElement]:
-        """
-        List fields for selected model - sync action for fields dropdown.
-        Receives current form values including selected model.
-
-        Returns:
-            Dropdown data with field names
-        """
+        """List fields for selected model."""
         try:
-            if not self.config.endpoints:
-                raise UserException("Please add an endpoint first")
-
-            model = None
-            for endpoint in self.config.endpoints:
-                if endpoint.model:
-                    model = endpoint.model
-                    break
-
+            model = self.config.model
             if not model:
                 raise UserException("Please select a model first")
 
@@ -698,7 +637,6 @@ class Component(ComponentBase):
 
             dropdown_data = []
             for field_name, field_info in fields_dict.items():
-                # Filter out _unknown placeholder field
                 if field_name == "_unknown":
                     continue
 
