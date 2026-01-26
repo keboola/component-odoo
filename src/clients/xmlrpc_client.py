@@ -15,7 +15,7 @@ from keboola.component.exceptions import UserException
 class XmlRpcClient:
     """Client for interacting with Odoo XML-RPC API."""
 
-    def __init__(self, url: str, database: str, username: str, api_key: str) -> None:
+    def __init__(self, url: str, database: str, username: str | None, api_key: str) -> None:
         """
         Initialize Odoo client.
 
@@ -27,13 +27,14 @@ class XmlRpcClient:
         """
         self.url: str = url.rstrip("/")
         self.database: str = database
-        self.username: str = username
+        self.username: str | None = username
         self.api_key: str = api_key
         self.uid: int | None = None
 
         # Initialize XML-RPC endpoints
         self.common: xmlrpc.client.ServerProxy = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/common")
         self.models: xmlrpc.client.ServerProxy = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/object")
+        self.db: xmlrpc.client.ServerProxy = xmlrpc.client.ServerProxy(f"{self.url}/xmlrpc/2/db")
 
         logging.info(f"Initialized Odoo client for {self.url}")
 
@@ -145,9 +146,9 @@ class XmlRpcClient:
 
         try:
             result = self.models.execute_kw(
-                self.db,
+                self.database,
                 self.uid,
-                self.password,
+                self.api_key,
                 model,
                 "fields_get",
                 [],
@@ -256,10 +257,17 @@ class XmlRpcClient:
         Raises:
             UserException: If connection fails
         """
+        if not self.database:
+            raise UserException("Database name is required")
+
+        if not self.username:
+            raise UserException("Username is required for XML-RPC authentication")
+
+        if not self.api_key:
+            raise UserException("API key is required")
+
         try:
             version = self.get_version()
-
-            # Authenticate to verify credentials
             self.authenticate()
 
             return {"version": version, "protocol": "XML-RPC"}
@@ -268,3 +276,27 @@ class XmlRpcClient:
             raise e
         except Exception as e:
             raise UserException(f"XML-RPC connection failed: {str(e)}")
+
+    def list_databases(self) -> list[str]:
+        """
+        List available databases on the Odoo instance.
+
+        Returns:
+            List of database names
+
+        Raises:
+            UserException: If listing databases fails
+        """
+        try:
+            databases = self.db.list()
+
+            if not isinstance(databases, list):
+                raise UserException(f"Unexpected response type from Odoo: {type(databases)}")
+
+            logging.info(f"Retrieved {len(databases)} database(s) via XML-RPC")
+            return databases
+
+        except xmlrpc.client.Fault as e:
+            raise UserException(f"XML-RPC error listing databases: {e.faultString}")
+        except Exception as e:
+            raise UserException(f"Failed to list databases: {str(e)}")

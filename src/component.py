@@ -13,6 +13,7 @@ from typing import Any
 
 from keboola.component.base import ComponentBase, sync_action
 from keboola.component.exceptions import UserException
+from keboola.component.sync_actions import SelectElement
 
 from clients.json2_client import Json2Client
 from clients.xmlrpc_client import XmlRpcClient
@@ -58,6 +59,8 @@ class Component(ComponentBase):
         Orchestrates the extraction workflow by delegating to well-named methods.
         Keeps this method concise (~20-30 lines) for readability.
         """
+        self._validate_config_for_run()
+
         if not self.config.endpoints:
             raise UserException("No endpoints configured")
 
@@ -91,6 +94,46 @@ class Component(ComponentBase):
             username=params.username,
             api_key=params.api_key,
         )
+
+    def _validate_config_for_run(self) -> None:
+        """
+        Validate configuration before data extraction.
+
+        Only called during run() - NOT during sync actions.
+        Ensures all required fields are present for actual data extraction.
+
+        Raises:
+            UserException: If required fields are missing
+        """
+        errors = []
+
+        if not self.config.database:
+            errors.append("Database name is required")
+
+        if not self.config.api_key:
+            errors.append("API key is required")
+
+        if self.config.api_protocol == PROTOCOL_XMLRPC and not self.config.username:
+            errors.append("Username is required for XML-RPC")
+
+        if errors:
+            raise UserException(
+                f"Configuration incomplete: {'; '.join(errors)}. "
+                "Please complete the configuration before running data extraction."
+            )
+
+        if not self.config.endpoints:
+            raise UserException("At least one endpoint must be configured")
+
+        for idx, endpoint in enumerate(self.config.endpoints):
+            if not endpoint.model:
+                errors.append(f"Endpoint {idx + 1}: Model name is required")
+
+        if errors:
+            raise UserException(
+                f"Configuration incomplete: {'; '.join(errors)}. "
+                "Please complete the configuration before running data extraction."
+            )
 
     def _test_connection(self) -> None:
         """Test Odoo connection and authentication."""
@@ -602,7 +645,7 @@ class Component(ComponentBase):
             raise UserException(f"Connection test failed: {str(e)}")
 
     @sync_action("listModels")
-    def list_models_action(self) -> list[dict[str, str]]:
+    def list_models_action(self) -> list[SelectElement]:
         """
         List available Odoo models - sync action for model dropdown.
 
@@ -615,10 +658,10 @@ class Component(ComponentBase):
             models_sorted = sorted(models, key=lambda m: m["model"])
 
             dropdown_data = [
-                {
-                    "value": model["model"],
-                    "label": f"{model['model']} - {model['name']}",
-                }
+                SelectElement(
+                    value=model["model"],
+                    label=f"{model['model']} - {model['name']}",
+                )
                 for model in models_sorted
             ]
 
@@ -630,7 +673,7 @@ class Component(ComponentBase):
             raise UserException(f"Failed to load models: {str(e)}")
 
     @sync_action("listFields")
-    def list_fields_action(self) -> list[dict[str, str]]:
+    def list_fields_action(self) -> list[SelectElement]:
         """
         List fields for selected model - sync action for fields dropdown.
         Receives current form values including selected model.
@@ -662,10 +705,10 @@ class Component(ComponentBase):
                 field_label = field_info.get("string", field_name)
                 field_type = field_info.get("type", "unknown")
                 dropdown_data.append(
-                    {
-                        "value": field_name,
-                        "label": f"{field_label} ({field_name}) - {field_type}",
-                    }
+                    SelectElement(
+                        value=field_name,
+                        label=f"{field_label} ({field_name}) - {field_type}",
+                    )
                 )
 
             return dropdown_data
@@ -674,6 +717,63 @@ class Component(ComponentBase):
             raise e
         except Exception as e:
             raise UserException(f"Failed to load fields: {str(e)}")
+
+    @sync_action("listDatabases")
+    def list_databases_action(self) -> list[SelectElement]:
+        """
+        List available databases on the Odoo instance.
+
+        For odoo.com instances, database listing is blocked for security.
+        This method detects odoo.com and suggests the database name from the URL.
+
+        Returns:
+            Dropdown data with database names
+
+        Raises:
+            UserException: If listing databases fails
+        """
+        try:
+            odoo_url = self.config.odoo_url
+            is_odoo_com = ".odoo.com" in odoo_url.lower()
+
+            if is_odoo_com:
+                from urllib.parse import urlparse
+
+                parsed = urlparse(odoo_url)
+                hostname = parsed.hostname or ""
+                subdomain = hostname.replace(".odoo.com", "").replace(".dev", "").replace(".saas", "")
+
+                if subdomain:
+                    logging.info(f"Detected odoo.com instance - suggesting database name from subdomain: {subdomain}")
+                    return [SelectElement(value=subdomain)]
+                else:
+                    raise UserException(
+                        "This is an Odoo.com instance. Database listing is blocked for security. "
+                        "Please enter the database name manually (usually matches your subdomain)."
+                    )
+
+            if self.config.api_protocol == PROTOCOL_JSON2:
+                client = Json2Client(odoo_url, "", None, "")
+                databases = client.list_databases()
+            else:
+                client = XmlRpcClient(odoo_url, "", "", "")
+                databases = client.list_databases()
+
+            logging.info(f"Found {len(databases)} database(s): {databases}")
+
+            # Convert to dropdown format
+            dropdown_data = [SelectElement(value=db) for db in databases]
+            return dropdown_data
+
+        except UserException as e:
+            if "Access Denied" in str(e) and ".odoo.com" in self.config.odoo_url.lower():
+                raise UserException(
+                    "Database listing is blocked on Odoo.com instances. "
+                    "Please enter the database name manually (it usually matches your subdomain)."
+                )
+            raise e
+        except Exception as e:
+            raise UserException(f"Failed to list databases: {str(e)}")
 
 
 if __name__ == "__main__":

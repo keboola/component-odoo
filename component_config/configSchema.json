@@ -2,9 +2,7 @@
   "type": "object",
   "title": "Odoo Extractor Configuration",
   "required": [
-    "odoo_url",
-    "database",
-    "#api_key"
+    "odoo_url"
   ],
   "properties": {
     "odoo_url": {
@@ -17,7 +15,14 @@
       "type": "string",
       "title": "Database Name",
       "description": "Odoo database name",
-      "propertyOrder": 20
+      "propertyOrder": 20,
+      "enum": [],
+      "options": {
+        "async": {
+          "action": "listDatabases",
+          "label": "Load Databases"
+        }
+      }
     },
     "api_protocol": {
       "type": "string",

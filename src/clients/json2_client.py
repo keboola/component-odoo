@@ -89,12 +89,12 @@ class Json2Client:
         Raises:
             UserException: If connection fails
         """
+        if not self.api_key:
+            raise UserException("API key is required for JSON-2 authentication")
+
         try:
-            # Get version (no auth required)
             version = self.get_version()
 
-            # Test authentication with a minimal authenticated call
-            # Try to call /json/2/res.users/search_read with domain and limit
             _ = self.http_client.post(
                 endpoint_path="res.users/search_read",
                 json={"domain": [], "limit": 1, "fields": ["id"]},
@@ -106,12 +106,11 @@ class Json2Client:
             return {"version": version, "protocol": "JSON-2"}
 
         except Exception as e:
-            # Check if it's an HTTP error
             if hasattr(e, "response") and hasattr(e.response, "status_code"):
                 if e.response.status_code == 401:
-                    raise UserException("JSON-2 authentication failed: Invalid API key")
+                    raise UserException("JSON-2 authentication failed (HTTP 401): Invalid API key")
                 elif e.response.status_code == 403:
-                    raise UserException("JSON-2 authentication failed: Access forbidden")
+                    raise UserException("JSON-2 authentication failed (HTTP 403): Access forbidden")
                 elif e.response.status_code == 404:
                     raise UserException("JSON-2 API not available (HTTP 404) - Odoo instance may be older than v19")
                 else:
@@ -150,16 +149,15 @@ class Json2Client:
             return models
 
         except Exception as e:
-            # Check if it's an HTTP error
             if hasattr(e, "response") and hasattr(e.response, "status_code"):
                 if e.response.status_code == 401:
-                    raise UserException("JSON-2 authentication failed: Invalid API key")
+                    raise UserException("JSON-2 authentication failed (HTTP 401): Invalid API key")
                 elif e.response.status_code == 403:
-                    raise UserException("JSON-2 access forbidden: User lacks permission to list models")
+                    raise UserException("JSON-2 access forbidden (HTTP 403): User lacks permission to list models")
                 elif e.response.status_code == 404:
                     raise UserException("JSON-2 API not available (HTTP 404)")
                 else:
-                    raise UserException(f"JSON-2 failed to list models: HTTP {e.response.status_code}")
+                    raise UserException(f"JSON-2 failed to list models (HTTP {e.response.status_code})")
             if isinstance(e, UserException):
                 raise e
             raise UserException(f"JSON-2 failed to list models: {str(e)}")
@@ -200,16 +198,15 @@ class Json2Client:
             return fields
 
         except Exception as e:
-            # Check if it's an HTTP error
             if hasattr(e, "response") and hasattr(e.response, "status_code"):
                 if e.response.status_code == 401:
-                    raise UserException("JSON-2 authentication failed: Invalid API key")
+                    raise UserException("JSON-2 authentication failed (HTTP 401): Invalid API key")
                 elif e.response.status_code == 403:
-                    raise UserException(f"JSON-2 access forbidden: User lacks permission to access {model}")
+                    raise UserException(f"JSON-2 access forbidden (HTTP 403): User lacks permission to access {model}")
                 elif e.response.status_code == 404:
-                    raise UserException(f"JSON-2 model not found: {model} does not exist or API unavailable")
+                    raise UserException(f"JSON-2 model not found (HTTP 404): {model} does not exist or API unavailable")
                 else:
-                    raise UserException(f"JSON-2 failed to get fields for {model}: HTTP {e.response.status_code}")
+                    raise UserException(f"JSON-2 failed to get fields for {model} (HTTP {e.response.status_code})")
             if isinstance(e, UserException):
                 raise e
             raise UserException(f"JSON-2 failed to get fields for {model}: {str(e)}")
@@ -267,13 +264,47 @@ class Json2Client:
             # Check if it's an HTTP error
             if hasattr(e, "response") and hasattr(e.response, "status_code"):
                 if e.response.status_code == 401:
-                    raise UserException("JSON-2 authentication failed: Invalid API key")
+                    raise UserException("JSON-2 authentication failed (HTTP 401): Invalid API key")
                 elif e.response.status_code == 403:
-                    raise UserException(f"JSON-2 access forbidden: User lacks permission to access {model}")
+                    raise UserException(f"JSON-2 access forbidden (HTTP 403): User lacks permission to access {model}")
                 elif e.response.status_code == 404:
-                    raise UserException(f"JSON-2 model not found: {model} does not exist or API unavailable")
+                    raise UserException(f"JSON-2 model not found (HTTP 404): {model} does not exist or API unavailable")
                 else:
-                    raise UserException(f"JSON-2 failed to fetch data from {model}: HTTP {e.response.status_code}")
+                    raise UserException(f"JSON-2 failed to fetch data from {model} (HTTP {e.response.status_code})")
             if isinstance(e, UserException):
                 raise e
             raise UserException(f"JSON-2 failed to fetch data from {model}: {str(e)}")
+
+    def list_databases(self) -> list[str]:
+        """
+        List available databases on the Odoo instance.
+
+        Uses JSON-RPC endpoint (not JSON-2) as database listing doesn't require authentication.
+
+        Returns:
+            List of database names
+
+        Raises:
+            UserException: If listing databases fails
+        """
+        try:
+            response = self.http_client.post(
+                endpoint_path=f"{self.url}/web/database/list",
+                is_absolute_path=True,
+                json={"jsonrpc": "2.0", "method": "call", "params": {}, "id": 1},
+                timeout=10,
+            )
+
+            if isinstance(response, dict) and "result" in response:
+                databases = response["result"]
+                if not isinstance(databases, list):
+                    raise UserException(f"Unexpected database list format: {type(databases)}")
+                logging.info(f"Retrieved {len(databases)} database(s) via JSON-RPC")
+                return databases
+            else:
+                raise UserException("Unexpected response format from database list")
+
+        except Exception as e:
+            if isinstance(e, UserException):
+                raise e
+            raise UserException(f"Failed to list databases: {str(e)}")
