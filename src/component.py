@@ -211,7 +211,8 @@ class Component(ComponentBase):
                 break
 
         # Write manifests and relationship tables
-        self.write_manifest(table)
+        if total_records > 0:
+            self.write_manifest(table)
 
         for rel_table_name, rel_records in all_relationship_tables.items():
             if rel_records:
