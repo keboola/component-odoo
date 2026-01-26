@@ -107,52 +107,55 @@ class TestComponent(unittest.TestCase):
             }
         ]
 
-        main_records, rel_tables = Component._split_records(records, "res.partner", "res_partner.csv")
+        result = Component._split_records(records, "res.partner", "res_partner.csv")
 
-        self.assertEqual(len(main_records), 1)
-        self.assertEqual(main_records[0]["id"], 1)
-        self.assertEqual(main_records[0]["country_id_id"], 21)
-        self.assertEqual(main_records[0]["country_id_name"], "United States")
-        self.assertEqual(len(rel_tables), 0)  # No relationship tables for many2one
+        self.assertEqual(len(result.main_records), 1)
+        self.assertEqual(result.main_records[0]["id"], 1)
+        self.assertEqual(result.main_records[0]["country_id_id"], 21)
+        self.assertEqual(result.main_records[0]["country_id_name"], "United States")
+        self.assertEqual(len(result.bridge_tables), 0)  # No relationship tables for many2one
 
     def test_split_records_many2many(self) -> None:
         """Test many2many fields are split into relationship tables."""
         records: list[dict[str, Any]] = [{"id": 1, "name": "Test", "tag_ids": [5, 9, 12]}]
 
-        main_records, rel_tables = Component._split_records(records, "res.partner", "res_partner.csv")
+        result = Component._split_records(records, "res.partner", "res_partner.csv")
 
         # Main table should not have tag_ids
-        self.assertEqual(len(main_records), 1)
-        self.assertEqual(main_records[0]["id"], 1)
-        self.assertEqual(main_records[0]["name"], "Test")
-        self.assertNotIn("tag_ids", main_records[0])
+        self.assertEqual(len(result.main_records), 1)
+        self.assertEqual(result.main_records[0]["id"], 1)
+        self.assertEqual(result.main_records[0]["name"], "Test")
+        self.assertNotIn("tag_ids", result.main_records[0])
 
         # Relationship table should have 3 records
-        self.assertIn("res_partner__tag_ids.csv", rel_tables)
-        rel_records = rel_tables["res_partner__tag_ids.csv"]
-        self.assertEqual(len(rel_records), 3)
-        self.assertEqual(rel_records[0], {"partner_id": 1, "tag_id": 5})
-        self.assertEqual(rel_records[1], {"partner_id": 1, "tag_id": 9})
-        self.assertEqual(rel_records[2], {"partner_id": 1, "tag_id": 12})
+        self.assertIn("res_partner__tag_ids.csv", result.bridge_tables)
+        rel_metadata = result.bridge_tables
+        rel_data = rel_metadata["res_partner__tag_ids.csv"]
+        self.assertEqual(rel_data.primary_key, ["partner_id", "tag_id"])
+        self.assertEqual(rel_data.table_name, "res_partner__tag_ids.csv")
+        self.assertEqual(len(rel_data.records), 3)
+        self.assertEqual(rel_data.records[0], {"partner_id": 1, "tag_id": 5})
+        self.assertEqual(rel_data.records[1], {"partner_id": 1, "tag_id": 9})
+        self.assertEqual(rel_data.records[2], {"partner_id": 1, "tag_id": 12})
 
     def test_split_records_false_values(self) -> None:
         """Test False values converted to None."""
         records: list[dict[str, Any]] = [{"id": 1, "email": False}]
 
-        main_records, rel_tables = Component._split_records(records, "res.partner", "res_partner.csv")
+        result = Component._split_records(records, "res.partner", "res_partner.csv")
 
-        self.assertEqual(len(main_records), 1)
-        self.assertIsNone(main_records[0]["email"])
-        self.assertEqual(len(rel_tables), 0)
+        self.assertEqual(len(result.main_records), 1)
+        self.assertIsNone(result.main_records[0]["email"])
+        self.assertEqual(len(result.bridge_tables), 0)
 
     def test_split_records_empty_relationships(self) -> None:
         """Test empty relationship lists don't create tables."""
         records: list[dict[str, Any]] = [{"id": 1, "tag_ids": []}]
 
-        main_records, rel_tables = Component._split_records(records, "res.partner", "res_partner.csv")
+        result = Component._split_records(records, "res.partner", "res_partner.csv")
 
-        self.assertEqual(len(main_records), 1)
-        self.assertEqual(len(rel_tables), 0)  # No tables for empty lists
+        self.assertEqual(len(result.main_records), 1)
+        self.assertEqual(len(result.bridge_tables), 0)  # No tables for empty lists
 
     def test_split_records_multiple_relationships(self) -> None:
         """Test multiple relationship fields create separate tables."""
@@ -165,22 +168,29 @@ class TestComponent(unittest.TestCase):
             }
         ]
 
-        main_records, rel_tables = Component._split_records(records, "res.partner", "res_partner.csv")
+        result = Component._split_records(records, "res.partner", "res_partner.csv")
 
         # Main table
-        self.assertEqual(len(main_records), 1)
-        self.assertEqual(main_records[0]["id"], 15)
+        self.assertEqual(len(result.main_records), 1)
+        self.assertEqual(result.main_records[0]["id"], 15)
 
         # Two relationship tables
-        self.assertEqual(len(rel_tables), 2)
-        self.assertIn("res_partner__category_id.csv", rel_tables)
-        self.assertIn("res_partner__child_ids.csv", rel_tables)
+        self.assertEqual(len(result.bridge_tables), 2)
+        self.assertIn("res_partner__category_id.csv", result.bridge_tables)
+        self.assertIn("res_partner__child_ids.csv", result.bridge_tables)
+        rel_metadata = result.bridge_tables
 
-        # category_id has 1 record
-        self.assertEqual(len(rel_tables["res_partner__category_id.csv"]), 1)
+        # category_id has 1 record and correct primary key
+        category_data = rel_metadata["res_partner__category_id.csv"]
+        self.assertEqual(category_data.primary_key, ["partner_id", "category_id"])
+        self.assertEqual(category_data.table_name, "res_partner__category_id.csv")
+        self.assertEqual(len(category_data.records), 1)
 
-        # child_ids has 3 records
-        self.assertEqual(len(rel_tables["res_partner__child_ids.csv"]), 3)
+        # child_ids has 3 records and correct primary key
+        child_data = rel_metadata["res_partner__child_ids.csv"]
+        self.assertEqual(child_data.primary_key, ["partner_id", "child_id"])
+        self.assertEqual(child_data.table_name, "res_partner__child_ids.csv")
+        self.assertEqual(len(child_data.records), 3)
 
 
 class TestMetadataGeneration(unittest.TestCase):

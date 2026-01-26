@@ -38,6 +38,33 @@ class MetadataRow:
     target_column: str
 
 
+@dataclass
+class BridgeTableMetadata:
+    """
+    Metadata for a many2many/one2many relationship bridge table.
+
+    Bridge tables store relationships between records (e.g., partner → children).
+    Each relationship becomes a row with composite primary key.
+    """
+
+    table_name: str
+    records: list[dict[str, Any]]
+    primary_key: list[str]
+
+
+@dataclass
+class SplitTablesResult:
+    """
+    Result of splitting Odoo records into main table and bridge tables.
+
+    Main table contains scalar fields and flattened many2one relationships.
+    Bridge tables contain many2many/one2many relationships as separate records.
+    """
+
+    main_records: list[dict[str, Any]]
+    bridge_tables: dict[str, BridgeTableMetadata]
+
+
 class Component(ComponentBase):
     """
     Odoo Extractor Component.
@@ -166,7 +193,7 @@ class Component(ComponentBase):
 
         page_num = 1
         total_records = 0
-        all_relationship_tables: dict[str, list[dict[str, Any]]] = {}
+        all_relationship_metadata: dict[str, BridgeTableMetadata] = {}
 
         # Cursor-based paging loop
         while True:
@@ -184,17 +211,21 @@ class Component(ComponentBase):
                 logging.info("No more records to fetch")
                 break
 
-            main_records, relationship_tables = self._split_records(records, self.config.model, self.config.table_name)
+            result = self._split_records(records, self.config.model, self.config.table_name)
 
             # Write main table (append after first page)
             mode = "a" if page_num > 1 else "w"
-            self._write_csv(Path(table.full_path), main_records, mode=mode)
+            self._write_csv(Path(table.full_path), result.main_records, mode=mode)
 
             # Accumulate relationship records
-            for rel_table_name, rel_records in relationship_tables.items():
-                if rel_table_name not in all_relationship_tables:
-                    all_relationship_tables[rel_table_name] = []
-                all_relationship_tables[rel_table_name].extend(rel_records)
+            for rel_table_name, rel_data in result.bridge_tables.items():
+                if rel_table_name not in all_relationship_metadata:
+                    all_relationship_metadata[rel_table_name] = BridgeTableMetadata(
+                        table_name=rel_table_name,
+                        records=[],
+                        primary_key=rel_data.primary_key,
+                    )
+                all_relationship_metadata[rel_table_name].records.extend(rel_data.records)
 
             # Update cursor for next page
             max_id = max(r.get("id", 0) for r in records if isinstance(r.get("id"), int))
@@ -214,16 +245,16 @@ class Component(ComponentBase):
         if total_records > 0:
             self.write_manifest(table)
 
-        for rel_table_name, rel_records in all_relationship_tables.items():
-            if rel_records:
+        for rel_table_name, rel_data in all_relationship_metadata.items():
+            if rel_data.records:
                 rel_table = self.create_out_table_definition(
-                    name=rel_table_name,
-                    incremental=False,
-                    primary_key=[],
+                    name=rel_data.table_name,
+                    incremental=self.config.incremental,
+                    primary_key=rel_data.primary_key,
                 )
-                self._write_csv(Path(rel_table.full_path), rel_records)
+                self._write_csv(Path(rel_table.full_path), rel_data.records)
                 self.write_manifest(rel_table)
-                logging.info(f"Wrote {len(rel_records)} relationship records to {rel_table_name}")
+                logging.info(f"Wrote {len(rel_data.records)} relationship records to {rel_data.table_name}")
 
         # Write metadata
         if total_records > 0:
@@ -233,11 +264,14 @@ class Component(ComponentBase):
                     reader = csv.DictReader(f)
                     main_table_fields = list(reader.fieldnames or [])
 
+            # Extract just the table names with records for metadata
+            relationship_tables_with_records = {name: data.records for name, data in all_relationship_metadata.items()}
+
             self._write_metadata_file(
                 self.config.model,
                 self.config.table_name,
                 main_table_fields,
-                all_relationship_tables,
+                relationship_tables_with_records,
             )
 
         logging.info(f"Wrote {total_records} total records to {self.config.table_name}")
@@ -268,13 +302,13 @@ class Component(ComponentBase):
         records: list[dict[str, Any]],
         model_name: str,
         table_name: str,
-    ) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    ) -> SplitTablesResult:
         """
-        Split records into main table and relationship tables.
+        Split records into main table and bridge tables.
 
         Handles different Odoo field types:
         - many2one: [id, name] → flattened to field_id, field_name in main table
-        - many2many/one2many: [id1, id2, ...] → separate relationship table
+        - many2many/one2many: [id1, id2, ...] → separate bridge table
         - scalar: kept as-is in main table
 
         Args:
@@ -283,26 +317,37 @@ class Component(ComponentBase):
             table_name: Base table name (e.g., 'res_partner.csv')
 
         Returns:
-            Tuple of:
-            - Main table records (many2one flattened, scalars preserved)
-            - Dict of relationship table name → relationship records
+            SplitTablesResult containing:
+            - main_records: Main table records (many2one flattened, scalars preserved)
+            - bridge_tables: Dict of table name → BridgeTableMetadata with:
+                - table_name: Bridge table name
+                - records: List of relationship records
+                - primary_key: Composite primary key fields
 
         Example:
             Input: [{"id": 15, "name": "Azure", "category_id": [5], "child_ids": [27,34]}]
             Output:
-                Main: [{"id": 15, "name": "Azure"}]
-                Relationships: {
-                    "res_partner__category_id.csv": [
-                        {"partner_id": 15, "category_id": 5}
-                    ],
-                    "res_partner__child_ids.csv": [
-                        {"partner_id": 15, "child_id": 27},
-                        {"partner_id": 15, "child_id": 34}
-                    ]
-                }
+                SplitTablesResult(
+                    main_records=[{"id": 15, "name": "Azure"}],
+                    bridge_tables={
+                        "res_partner__category_id.csv": BridgeTableMetadata(
+                            table_name="res_partner__category_id.csv",
+                            records=[{"partner_id": 15, "category_id": 5}],
+                            primary_key=["partner_id", "category_id"]
+                        ),
+                        "res_partner__child_ids.csv": BridgeTableMetadata(
+                            table_name="res_partner__child_ids.csv",
+                            records=[
+                                {"partner_id": 15, "child_id": 27},
+                                {"partner_id": 15, "child_id": 34}
+                            ],
+                            primary_key=["partner_id", "child_id"]
+                        )
+                    }
+                )
         """
         main_records = []
-        relationship_tables: dict[str, list[dict[str, Any]]] = {}
+        relationship_metadata: dict[str, BridgeTableMetadata] = {}
 
         # Extract foreign key name from model (e.g., 'res.partner' → 'partner_id')
         # Use the last part of the model name
@@ -325,17 +370,24 @@ class Component(ComponentBase):
                     # many2many or one2many: [id1, id2, ...] → split to relationship table
                     rel_table_name = f"{base_name}__{key}.csv"
 
-                    if rel_table_name not in relationship_tables:
-                        relationship_tables[rel_table_name] = []
-
                     # Determine relationship field name (remove trailing _ids if present)
                     rel_field_name = key.rstrip("s") if key.endswith("_ids") else key
                     if not rel_field_name.endswith("_id"):
                         rel_field_name = key.replace("_ids", "_id")
 
+                    # Initialize metadata structure for this relationship table
+                    if rel_table_name not in relationship_metadata:
+                        relationship_metadata[rel_table_name] = BridgeTableMetadata(
+                            table_name=rel_table_name,
+                            records=[],
+                            primary_key=[fk_name, rel_field_name],
+                        )
+
                     # Create relationship records
                     for rel_id in value:
-                        relationship_tables[rel_table_name].append({fk_name: record_id, rel_field_name: rel_id})
+                        relationship_metadata[rel_table_name].records.append(
+                            {fk_name: record_id, rel_field_name: rel_id}
+                        )
                     # Don't include this field in main record
 
                 elif isinstance(value, list):
@@ -353,7 +405,10 @@ class Component(ComponentBase):
 
             main_records.append(main_record)
 
-        return main_records, relationship_tables
+        return SplitTablesResult(
+            main_records=main_records,
+            bridge_tables=relationship_metadata,
+        )
 
     @staticmethod
     def _write_csv(file_path: Path, records: list[dict[str, Any]], mode: str = "w") -> None:
