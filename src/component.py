@@ -8,6 +8,7 @@ Uses modern Python 3.9+ type hints and clean orchestrator pattern.
 import csv
 import logging
 from dataclasses import asdict, dataclass, fields
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,7 @@ class Component(ComponentBase):
         self._test_connection()
 
         self.state = self.get_state_file()
+        self._validate_state()
         self._extract_with_paging()
 
         if self.state:
@@ -106,6 +108,32 @@ class Component(ComponentBase):
         if errors:
             raise UserException(f"Configuration incomplete: {'; '.join(errors)}")
 
+    def _validate_state(self) -> None:
+        """Validate model and domain haven't changed since last run."""
+        if not self.state:
+            logging.info("No previous state found - first run")
+            return
+
+        stored_model = self.state.get("model")
+        if stored_model and stored_model != self.config.model:
+            raise UserException(
+                f"Model changed from '{stored_model}' to '{self.config.model}'. "
+                "Clear the component state to extract a different model."
+            )
+
+        stored_domain = self.state.get("domain", "")
+        current_domain = self.config.domain or ""
+        if stored_domain != current_domain:
+            raise UserException(
+                "Domain filter changed since last run. Clear the component state to continue with new filter."
+            )
+
+        last_run = self.state.get("last_run", {})
+        if last_run:
+            logging.info(
+                f"Previous run: {last_run.get('timestamp', 'unknown')} - {last_run.get('records_fetched', 0)} records"
+            )
+
     def _test_connection(self) -> None:
         """Test Odoo connection and authentication."""
         if self.client:
@@ -113,21 +141,22 @@ class Component(ComponentBase):
             self.client.test_connection()
 
     def _extract_with_paging(self) -> None:
-        """Extract data with pagination support."""
+        """Extract data with cursor-based pagination."""
         logging.info(f"Extracting {self.config.model} -> {self.config.table_name}")
 
-        last_id = self.state.get("last_id", 0)
-        offset = self.state.get("offset", 0)
-        completed = self.state.get("completed", False)
+        # Check if we're switching from incremental to full load
+        state_last_id = self.state.get("last_id", 0)
+        if not self.config.incremental and state_last_id > 0:
+            logging.warning(f"Full load mode with existing state (last_id={state_last_id}). Starting fresh extraction.")
 
-        if completed and not self.config.incremental:
-            offset = 0
-            completed = False
+        # Initialize cursor from state (incremental) or 0 (full load)
+        cursor_id = state_last_id if self.config.incremental else 0
 
+        # Build initial domain with cursor
         domain = self.config.get_domain()
-        if self.config.incremental and last_id:
-            domain.append(("id", ">", last_id))
-            logging.info(f"Incremental load: fetching records with id > {last_id}")
+        if cursor_id > 0:
+            domain.append(("id", ">", cursor_id))
+            logging.info(f"Incremental mode: resuming from ID {cursor_id}")
 
         table = self.create_out_table_definition(
             name=self.config.table_name,
@@ -135,58 +164,53 @@ class Component(ComponentBase):
             primary_key=["id"],
         )
 
-        page_num = (offset // self.config.page_size) + 1
+        page_num = 1
         total_records = 0
-        max_id_seen = last_id
         all_relationship_tables: dict[str, list[dict[str, Any]]] = {}
 
+        # Cursor-based paging loop
         while True:
-            logging.info(f"Fetching page {page_num} (offset {offset}, limit {self.config.page_size})")
+            logging.info(f"Fetching page {page_num} (cursor: id > {cursor_id}, limit: {self.config.page_size})")
 
             records = self.client.search_read(
                 model=self.config.model,
                 domain=domain,
                 fields=self.config.fields,
                 limit=self.config.page_size,
-                offset=offset,
                 order="id asc",
             )
 
             if not records:
                 logging.info("No more records to fetch")
-                completed = True
                 break
 
             main_records, relationship_tables = self._split_records(records, self.config.model, self.config.table_name)
 
-            mode = "a" if offset > 0 else "w"
+            # Write main table (append after first page)
+            mode = "a" if page_num > 1 else "w"
             self._write_csv(Path(table.full_path), main_records, mode=mode)
 
+            # Accumulate relationship records
             for rel_table_name, rel_records in relationship_tables.items():
                 if rel_table_name not in all_relationship_tables:
                     all_relationship_tables[rel_table_name] = []
                 all_relationship_tables[rel_table_name].extend(rel_records)
 
-            if self.config.incremental:
-                page_max_id = max(r.get("id", 0) for r in records if isinstance(r.get("id"), int))
-                max_id_seen = max(max_id_seen, page_max_id)
+            # Update cursor for next page
+            max_id = max(r.get("id", 0) for r in records if isinstance(r.get("id"), int))
+            cursor_id = max_id
+
+            # Update domain with new cursor
+            domain = [d for d in domain if d[0] != "id"]
+            domain.append(("id", ">", cursor_id))
 
             total_records += len(records)
-            offset += len(records)
             page_num += 1
 
-            self.state["offset"] = offset
-            if self.config.incremental:
-                self.state["last_id"] = max_id_seen
-            self.state["completed"] = False
-
             if len(records) < self.config.page_size:
-                completed = True
                 break
 
-        self.state["completed"] = completed
-        self.state["offset"] = 0
-
+        # Write manifests and relationship tables
         self.write_manifest(table)
 
         for rel_table_name, rel_records in all_relationship_tables.items():
@@ -200,6 +224,7 @@ class Component(ComponentBase):
                 self.write_manifest(rel_table)
                 logging.info(f"Wrote {len(rel_records)} relationship records to {rel_table_name}")
 
+        # Write metadata
         if total_records > 0:
             main_table_fields = []
             if Path(table.full_path).exists():
@@ -215,6 +240,27 @@ class Component(ComponentBase):
             )
 
         logging.info(f"Wrote {total_records} total records to {self.config.table_name}")
+
+        # Get Odoo version for debugging
+        odoo_version = "unknown"
+        try:
+            odoo_version = self.client.get_version()
+        except Exception:
+            pass
+
+        # Build comprehensive state
+        self.state = {
+            "model": self.config.model,
+            "domain": self.config.domain or "",
+            "last_id": cursor_id if self.config.incremental else 0,
+            "last_run": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "records_fetched": total_records,
+                "incremental": self.config.incremental,
+                "odoo_version": odoo_version,
+                "page_size": self.config.page_size,
+            },
+        }
 
     @staticmethod
     def _split_records(
