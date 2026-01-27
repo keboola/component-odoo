@@ -1,6 +1,6 @@
 # Odoo Extractor
 
-Extract data from Odoo ERP systems via XML-RPC API with intelligent model/field discovery and incremental loading.
+Extract data from Odoo ERP systems via XML-RPC or JSON-2 API with intelligent model/field discovery and incremental loading.
 
 ## Key Features
 

@@ -47,8 +47,8 @@ Set up your Odoo connection once (shared across all rows):
 - `username` - User email/login (optional for JSON-2 protocol)
 - `#api_key` - API key or password (encrypted field)
 - `api_protocol` - Protocol to use:
-  - `xmlrpc` - XML-RPC (all Odoo versions, universal)
-  - `json2` - JSON-2 (Odoo 19+, 2-3x faster, modern)
+  - `xmlrpc` - XML-RPC (Odoo 8.0-19.0, will be removed in future versions)
+  - `json2` - JSON-2 (Odoo 19.0+, recommended)
 
 **UI Features:**
 - **Test Connection** button - Validates credentials and protocol availability
@@ -76,19 +76,20 @@ Each configuration row defines extraction for ONE Odoo model:
 
 ## API Protocol Comparison
 
-### XML-RPC (Universal)
-- ✅ **Compatibility:** All Odoo versions (8.0+)
+### XML-RPC (Legacy)
+- ✅ **Compatibility:** Odoo 8.0-19.0
 - ✅ **Stability:** Battle-tested, widely used
 - ✅ **Username required:** Must provide username
-- ⚠️ **Performance:** XML encoding overhead
+- ⚠️ **Performance:** Verbose XML format
+- ⚠️ **Deprecated:** Will be removed in future Odoo versions
 
-### JSON-2 (Modern - Odoo 19+)
+### JSON-2 (Recommended - Odoo 19+)
 - ✅ **Performance:** Native JSON, more efficient than XML-RPC
-- ✅ **Modern:** Cleaner API, smaller payloads
+- ✅ **Cleaner API:** Smaller payloads, simpler authentication
 - ✅ **No username needed:** API key is sufficient
 - ⚠️ **Compatibility:** Odoo 19.0+ only
 
-**Recommendation:** Use JSON-2 if you're on Odoo 19+ for better performance, otherwise XML-RPC.
+**Recommendation:** Use JSON-2 if you're on Odoo 19+ (recommended), otherwise XML-RPC for older versions.
 
 ## Example Configuration
 
@@ -457,7 +458,7 @@ uvx ruff check --fix .
 
 ### Core Modules
 
-**`clients/xmlrpc_client.py`** - XML-RPC protocol client (universal compatibility)
+**`clients/xmlrpc_client.py`** - XML-RPC protocol client (Odoo 8.0-19.0, legacy)
   - `authenticate()` - Odoo authentication via common service
   - `search_read()` - Extract data with domain filtering
   - `get_fields()` - Get field definitions for a model
@@ -467,7 +468,7 @@ uvx ruff check --fix .
 
 **`clients/json2_client.py`** - JSON-2 protocol client (Odoo 19+, high performance)
   - Same interface as XmlRpcClient
-  - 2-3x faster than XML-RPC
+  - More efficient than XML-RPC (native JSON)
   - No username required (API key only)
   - Native JSON payloads
 
@@ -503,7 +504,7 @@ uvx ruff check --fix .
 
 - **Odoo Versions**: 18.0, 19.0
 - **Python Version**: 3.13
-- **Protocols**: XML-RPC (universal), JSON-2 (Odoo 19+)
+- **Protocols**: XML-RPC (legacy), JSON-2 (Odoo 19+)
 - **Test Records**: 40+ partners, 20+ relationship records
 - **Incremental Runs**: Verified across multiple runs with state persistence
 
