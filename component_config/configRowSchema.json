@@ -1,1 +1,69 @@
-{}
+{
+  "type": "object",
+  "title": "Odoo Model Extraction",
+  "required": [
+    "model"
+  ],
+  "properties": {
+    "model": {
+      "type": "string",
+      "title": "Odoo Model",
+      "description": "Odoo model name (e.g., res.partner, sale.order)",
+      "propertyOrder": 10,
+      "enum": [],
+      "options": {
+        "async": {
+          "action": "listModels",
+          "label": "Load Models"
+        }
+      }
+    },
+    "fields": {
+      "type": "array",
+      "format": "select",
+      "title": "Fields to Extract",
+      "description": "Select specific fields to extract, or leave empty to extract all available fields",
+      "propertyOrder": 20,
+      "enum": [],
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true,
+      "options": {
+        "async": {
+          "action": "listFields",
+          "label": "Load Fields",
+          "watchFor": [
+            "model"
+          ]
+        },
+        "tags": true,
+        "creatable": true
+      }
+    },
+    "domain": {
+      "type": "string",
+      "format": "textarea",
+      "title": "Domain Filter (Optional)",
+      "description": "Odoo domain filter as JSON array, e.g. [[\"is_company\", \"=\", true]]",
+      "propertyOrder": 30
+    },
+    "incremental": {
+      "type": "boolean",
+      "format": "checkbox",
+      "title": "Incremental Loading",
+      "description": "Extract only new records since last run (based on ID field)",
+      "default": false,
+      "propertyOrder": 40
+    },
+    "page_size": {
+      "type": "integer",
+      "title": "Page Size",
+      "description": "Number of records to fetch per page",
+      "default": 1000,
+      "minimum": 100,
+      "maximum": 10000,
+      "propertyOrder": 50
+    }
+  }
+}

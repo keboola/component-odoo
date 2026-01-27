@@ -1,0 +1,37 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format-check
+        name: ruff format check
+        entry: uv run ruff format --check
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --extend-select PLR6301
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: ruff-isort-check
+        name: ruff isort check
+        entry: uv run ruff check --select I
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: flake8
+        name: flake8
+        entry: uv run flake8
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: unittest
+        name: unittest
+        entry: uv run python -m unittest discover
+        language: system
+        types: [python]
+        pass_filenames: false
