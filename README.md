@@ -1,92 +1,134 @@
 # Odoo Extractor
 
-Extract data from Odoo ERP via XML-RPC API with dynamic model/field discovery and modern Python 3.13 implementation.
+Extract data from Odoo ERP systems using XML-RPC or JSON-2 protocols with dynamic model/field discovery and modern Python 3.13 implementation.
 
 ## Features
 
 ### Core Capabilities
+- ✅ **Dual Protocol Support** - Choose between XML-RPC (all versions) or JSON-2 (Odoo 19+, 2-3x faster)
 - ✅ **Dynamic Model Discovery** - Browse and select from hundreds of Odoo models via UI
 - ✅ **Field Discovery** - Automatically load field definitions for selected models
+- ✅ **Database Discovery** - Auto-discover available databases on Odoo instance
 - ✅ **Test Connection** - Validate credentials before running extractions
-- ✅ **Multiple Endpoints** - Extract data from multiple models in one run
-- ✅ **Incremental Loading** - ID-based state tracking for efficient updates
+- ✅ **Configuration Rows** - Modern Keboola pattern: one row per model
+- ✅ **Incremental Loading** - Cursor-based state tracking for efficient updates
 - ✅ **Smart Relationship Handling** - Automatically splits many2many/one2many into normalized tables
 
 ### Technical Highlights
 - ✅ **Modern Type Hints** - Python 3.13 with `list[str]`, `dict[str, Any]`, `int | None`
-- ✅ **Sync Actions** - Dynamic UI with testConnection, listModels, listFields
-- ✅ **Nested State Structure** - Clean `state["endpoints"][table]["last_id"]` format
-- ✅ **Code Quality** - Ruff formatted, type-checked, @staticmethod decorators
+- ✅ **Sync Actions** - Dynamic UI with testConnection, listDatabases, listModels, listFields
+- ✅ **Cursor-Based Pagination** - Efficient `id > cursor_id` pagination with configurable page size
+- ✅ **Client Abstraction** - Separate XmlRpcClient and Json2Client implementations
+- ✅ **Code Quality** - Ruff formatted, type-checked, dataclass-driven architecture
 
 ## Configuration
 
-### UI-Based Configuration (Recommended)
+### Configuration Rows Pattern
 
-The extractor provides a dynamic UI with:
+This component uses **configuration rows** - the modern Keboola architecture where:
+- Each configuration row = one Odoo model extraction
+- Component runs once per row (independent executions)
+- Each row has its own state (incremental tracking)
+- Add multiple rows to extract multiple models
 
-1. **Connection Section**
-   - Odoo URL, Database, Username, API Key
-   - **Test Connection** button to validate credentials
+**Benefits:**
+- ✅ Isolated state per model (no conflicts)
+- ✅ Independent execution (parallel processing)
+- ✅ Easy to add/remove models (just add/delete rows)
+- ✅ Clear separation of concerns
 
-2. **Endpoints Configuration**
-   - **Model Dropdown**: Select from 146+ models (autoloads from your Odoo)
-   - **Fields Multi-Select**: Choose fields to extract (autoloads based on model)
-   - **Output Table Name**: e.g., `customers.csv`
-   - **Incremental Loading**: Toggle for ID-based incremental extraction
-   - **Record Limit**: Default 1000 (0 = no limit)
-   - **Sort Order**: Default `id asc`
+### Global Configuration
 
-3. **No Manual Entry Required**
-   - Models discovered dynamically from `ir.model`
-   - Fields discovered from `fields_get()` API
-   - Shows field labels, types, and technical names
+Set up your Odoo connection once (shared across all rows):
 
-### JSON Configuration (Advanced)
+**Connection Parameters:**
+- `odoo_url` - Odoo instance URL (e.g., `https://demo.odoo.com`)
+- `database` - Database name (use **List Databases** button to discover)
+- `username` - User email/login (optional for JSON-2 protocol)
+- `#api_key` - API key or password (encrypted field)
+- `api_protocol` - Protocol to use:
+  - `xmlrpc` - XML-RPC (all Odoo versions, universal)
+  - `json2` - JSON-2 (Odoo 19+, 2-3x faster, modern)
 
-You can also configure via JSON (for automation or advanced use cases):
+**UI Features:**
+- **Test Connection** button - Validates credentials and protocol availability
+- **List Databases** button - Auto-discovers available databases on the instance
 
-#### Connection Parameters
-- `odoo_url` - Odoo instance URL
-- `database` - Database name
-- `username` - User email/login
-- `#api_key` - API key or password (encrypted)
+### Row Configuration (Per Model)
 
-#### Endpoints
-- `model` - Odoo model name (from dropdown or manual)
-- `output_table` - Output CSV filename (e.g., `partners.csv`)
-- `fields` - Field list (empty = extract all)
-- `domain` - Odoo domain filter (advanced)
-- `limit` - Max records (default: 1000)
-- `order` - Sort order (default: `id asc`)
-- `incremental` - Enable incremental (default: false)
-- `primary_key` - Primary key (default: `["id"]`)
+Each configuration row defines extraction for ONE Odoo model:
+
+**Required Parameters:**
+- `model` - Odoo model name (e.g., `res.partner`, `sale.order`)
+- `output_table` - Output table name (e.g., `customers`, `sales_orders`)
+
+**Optional Parameters:**
+- `fields` - Field list to extract (empty = extract all fields)
+- `domain` - Odoo domain filter (e.g., `[["state", "=", "sale"]]`)
+- `incremental` - Enable incremental loading (default: `false`)
+- `page_size` - Records per page for pagination (default: `1000`)
+- `primary_key` - Primary key columns (default: `["id"]`)
+
+**UI Features:**
+- **Model Dropdown** - Select from 100+ models (autoloaded via sync action)
+- **Fields Multi-Select** - Choose fields to extract (autoloaded based on model)
+- Shows field labels, types, and technical names
+
+## API Protocol Comparison
+
+### XML-RPC (Universal)
+- ✅ **Compatibility:** All Odoo versions (8.0+)
+- ✅ **Stability:** Battle-tested, widely used
+- ✅ **Username required:** Must provide username
+- ⚠️ **Performance:** Slower than JSON-2 (XML overhead)
+
+### JSON-2 (Modern - Odoo 19+)
+- ✅ **Performance:** 2-3x faster than XML-RPC
+- ✅ **Modern:** Native JSON, smaller payloads
+- ✅ **No username needed:** API key is sufficient
+- ⚠️ **Compatibility:** Odoo 19.0+ only
+
+**Recommendation:** Use JSON-2 if you're on Odoo 19+, otherwise XML-RPC.
 
 ## Example Configuration
 
+### Global Config (Connection)
 ```json
 {
   "parameters": {
     "odoo_url": "https://demo.odoo.com",
     "database": "demo",
     "username": "admin",
-    "api_key": "admin",
-    "endpoints": [
-      {
-        "model": "res.partner",
-        "output_table": "partners.csv",
-        "fields": ["id", "name", "email", "phone", "country_id"],
-        "limit": 1000,
-        "incremental": false,
-        "primary_key": ["id"]
-      },
-      {
-        "model": "sale.order",
-        "output_table": "sales.csv",
-        "domain": [["state", "=", "sale"]],
-        "incremental": true,
-        "primary_key": ["id"]
-      }
-    ]
+    "#api_key": "admin",
+    "api_protocol": "xmlrpc"
+  }
+}
+```
+
+### Configuration Row #1 (Partners - Full Extract)
+```json
+{
+  "parameters": {
+    "model": "res.partner",
+    "output_table": "customers",
+    "fields": ["id", "name", "email", "phone", "country_id", "child_ids"],
+    "incremental": false,
+    "page_size": 1000,
+    "primary_key": ["id"]
+  }
+}
+```
+
+### Configuration Row #2 (Sales Orders - Incremental)
+```json
+{
+  "parameters": {
+    "model": "sale.order",
+    "output_table": "sales_orders",
+    "domain": [["state", "=", "sale"]],
+    "incremental": true,
+    "page_size": 500,
+    "primary_key": ["id"]
   }
 }
 ```
@@ -95,12 +137,15 @@ You can also configure via JSON (for automation or advanced use cases):
 
 Extract from any Odoo model:
 
-- **Contacts**: `res.partner`, `res.users`
+- **Contacts**: `res.partner`, `res.users`, `res.company`
 - **Sales**: `sale.order`, `sale.order.line`
 - **Invoicing**: `account.move`, `account.move.line`
 - **Inventory**: `product.product`, `product.template`, `stock.move`
 - **CRM**: `crm.lead`, `crm.stage`
+- **HR**: `hr.employee`, `hr.department`
 - And many more!
+
+Use the **List Models** button in the UI to see all available models for your Odoo instance.
 
 ## Handling Relational Fields
 
@@ -133,19 +178,21 @@ id,name,country_id_id,country_id_name
 
 **Output: 3 separate tables** (normalized structure)
 
-**`res_partner.csv`** (main table):
+**`customers.csv`** (main table):
 ```csv
 id,name
 15,Azure Interior
 ```
 
-**`res_partner__category_id.csv`** (relationship table):
+**`customers__category_id.csv`** (relationship table):
 ```csv
 partner_id,category_id
 15,5
 ```
 
-**`res_partner__child_ids.csv`** (relationship table):
+**Primary Key:** `["partner_id", "category_id"]` (composite)
+
+**`customers__child_ids.csv`** (relationship table):
 ```csv
 partner_id,child_id
 15,27
@@ -153,10 +200,23 @@ partner_id,child_id
 15,28
 ```
 
+**Primary Key:** `["partner_id", "child_id"]` (composite)
+
+### Bridge Table Incremental Support
+
+Bridge tables (relationship tables) now support incremental mode:
+
+- ✅ **Incremental mode matches main table** - If main table uses incremental, so do bridge tables
+- ✅ **Composite primary keys** - Prevents duplicate relationships in storage
+- ✅ **Automatic creation** - No configuration needed
+- ⚠️ **Known trade-off:** Deleted relationships remain until full reload (accepted limitation)
+
+**Example:** If `customers` uses `incremental: true`, then `customers__child_ids` also uses incremental mode with composite PK `["partner_id", "child_id"]`.
+
 ### Why Auto-Split?
 
 ✅ **Proper relational structure** - Industry-standard data modeling
-✅ **Easy SQL joins** - `JOIN res_partner__category_id ON id = partner_id`
+✅ **Easy SQL joins** - `JOIN customers__category_id ON id = partner_id`
 ✅ **BI tool friendly** - Works seamlessly with Tableau, PowerBI, Looker
 ✅ **No data loss** - Preserves all relationship information
 ✅ **Scalable** - Handles large many2many datasets efficiently
@@ -167,8 +227,8 @@ partner_id,child_id
 |-----------------|------------------|----------------|
 | **Scalar** (text, number, date) | Main table column | `email: "user@example.com"` |
 | **many2one** | Flattened in main table | `country_id_id: 233`<br>`country_id_name: "United States"` |
-| **many2many** | Separate relationship table | `res_partner__category_id.csv` |
-| **one2many** | Separate relationship table | `res_partner__child_ids.csv` |
+| **many2many** | Separate bridge table with composite PK | `customers__category_id.csv` |
+| **one2many** | Separate bridge table with composite PK | `customers__child_ids.csv` |
 | **False** values | Converted to NULL | `phone: NULL` |
 
 ## Schema Metadata Files
@@ -196,18 +256,18 @@ Metadata files are created even if no records were extracted, so you always have
 - `source_column` - Column name to use in JOIN ON clause (if applicable)
 - `target_column` - Target column name in relationship table (if applicable)
 
-### Example: `metadata__res_partner.csv`
+### Example: `metadata__customers.csv`
 
 ```csv
 field_name,field_type,target_model,location,source_column,target_column
-id,integer,,res_partner.csv,,
-name,char,,res_partner.csv,,
-email,char,,res_partner.csv,,
-country_id,many2one,res.country,res_partner.csv,country_id_id,
-country_id_id,integer,,res_partner.csv,,
-country_id_name,char,,res_partner.csv,,
-category_id,many2many,res.partner.category,res_partner__category_id.csv,partner_id,category_id
-child_ids,one2many,res.partner,res_partner__child_ids.csv,partner_id,child_id
+id,integer,,customers.csv,,
+name,char,,customers.csv,,
+email,char,,customers.csv,,
+country_id,many2one,res.country,customers.csv,country_id_id,
+country_id_id,integer,,customers.csv,,
+country_id_name,char,,customers.csv,,
+category_id,many2many,res.partner.category,customers__category_id.csv,partner_id,category_id
+child_ids,one2many,res.partner,customers__child_ids.csv,partner_id,child_id
 ```
 
 ### Using Metadata for SQL Joins
@@ -221,7 +281,7 @@ SELECT
   p.name,
   p.country_id_id,
   c.name AS country_name
-FROM res_partner p
+FROM customers p
 LEFT JOIN res_country c 
   ON p.country_id_id = c.id
 ```
@@ -232,8 +292,8 @@ SELECT
   p.id,
   p.name,
   cat.name AS category_name
-FROM res_partner p
-JOIN res_partner__category_id rel 
+FROM customers p
+JOIN customers__category_id rel 
   ON p.id = rel.partner_id
 JOIN res_partner_category cat 
   ON rel.category_id = cat.id
@@ -244,10 +304,10 @@ JOIN res_partner_category cat
 SELECT 
   parent.name AS parent_name,
   child.name AS child_name
-FROM res_partner parent
-JOIN res_partner__child_ids rel 
+FROM customers parent
+JOIN customers__child_ids rel 
   ON parent.id = rel.partner_id
-JOIN res_partner child 
+JOIN customers child 
   ON rel.child_id = child.id
 ```
 
@@ -278,31 +338,87 @@ The metadata file columns tell you everything you need:
 
 ## Incremental Loading
 
-Enable incremental loading to track the last extracted record ID per endpoint:
+Enable incremental loading to efficiently extract only new records since the last run.
 
-**State Structure:**
+### How It Works
+
+1. **Cursor-Based Pagination** - Uses `id > cursor_id` domain filter (not offset-based)
+2. **State Tracking** - Stores last processed ID after each successful run
+3. **Automatic Resume** - Next run continues from last processed ID
+4. **Per-Row State** - Each configuration row tracks its own state independently
+5. **Full Load Override** - Switching from incremental to full load starts fresh
+
+### State Structure
+
+Each configuration row maintains its own state file:
+
 ```json
 {
-  "endpoints": {
-    "partners.csv": {"last_id": 23},
-    "companies.csv": {"last_id": 11}
+  "last_id": 1234,
+  "last_run": "2026-01-27T10:30:00Z",
+  "metadata": {
+    "model": "res.partner",
+    "incremental": true,
+    "domain": [["active", "=", true]],
+    "fields": ["id", "name", "email"],
+    "page_size": 1000
   }
 }
 ```
 
-**How it Works:**
-1. First run extracts all records
-2. Stores `last_id` in nested state structure
-3. Subsequent runs only fetch records with `id > last_id`
-4. Each endpoint tracks its state independently
-5. State written atomically (all endpoints at once)
+**State Fields:**
+- `last_id` - Last successfully processed record ID (cursor position)
+- `last_run` - ISO timestamp of last successful extraction
+- `metadata` - Configuration snapshot for validation (detects domain/field changes)
+
+### Cursor-Based Pagination
+
+The component uses efficient cursor-based pagination:
+
+```python
+# Page 1: Extract records 1-1000
+domain: [["id", ">", 0]]
+
+# Page 2: Extract records 1001-2000
+domain: [["id", ">", 1000]]
+
+# Page 3: Extract records 2001-3000
+domain: [["id", ">", 2000]]
+```
+
+**Benefits:**
+- ✅ Constant query performance (no OFFSET overhead)
+- ✅ Works with incremental mode (adds to existing domain)
+- ✅ Handles large datasets efficiently
+- ✅ Configurable page size (default: 1000)
+
+### Incremental Mode Validation
+
+The component validates state consistency:
+
+- ✅ **Domain change detection** - Warns if domain filter changed
+- ✅ **Field change detection** - Warns if field selection changed
+- ✅ **Model validation** - Ensures state matches current configuration
+- ⚠️ **State invalidation** - Changing domain/fields may require full reload
+
+### Empty Table Handling
+
+When no records are extracted:
+
+- ✅ **No CSV files written** - Prevents unnecessary storage operations
+- ✅ **Metadata still created** - Schema documentation always available
+- ✅ **State still updated** - Tracks last_run timestamp
+- ✅ **Logs warning** - Clearly indicates no data found
 
 ## Development
 
 ### Run Locally
 
 ```bash
-# Run with local config
+# Set up environment
+export KBC_DATADIR=/path/to/data/dir
+
+# Run component
 python src/component.py
 ```
 
@@ -333,47 +449,63 @@ uvx ruff check --fix .
 - ✅ No deprecated typing imports (`typing.List`, `typing.Dict`, `typing.Optional`)
 - ✅ `@staticmethod` decorators on pure functions
 - ✅ `@sync_action` decorators for UI actions
+- ✅ Dataclass-driven architecture (`BridgeTableMetadata`, `SplitTablesResult`)
 - ✅ Ruff formatted and linted
-- ✅ Clean orchestrator pattern in `run()` method (~15 lines)
+- ✅ Clean orchestrator pattern in `run()` method
 
 ## Architecture
 
 ### Core Modules
-- **`odoo_client.py`** - XML-RPC client with authentication, data fetching, and metadata discovery
-  - `authenticate()` - Odoo authentication
-  - `search_read()` - Extract data from models
-  - `get_model_fields()` - Get field definitions
-  - `list_models()` - Discover available models (for UI)
+
+**`clients/xmlrpc_client.py`** - XML-RPC protocol client (universal compatibility)
+  - `authenticate()` - Odoo authentication via common service
+  - `search_read()` - Extract data with domain filtering
+  - `get_fields()` - Get field definitions for a model
+  - `list_models()` - Discover available models
+  - `list_databases()` - Discover available databases
   - `test_connection()` - Validate credentials
 
-- **`configuration.py`** - Pydantic models for validation
-  - `Configuration` - Main config with encrypted #api_key support
-  - `OdooEndpoint` - Per-endpoint settings
-  - URL validation, endpoint validation
+**`clients/json2_client.py`** - JSON-2 protocol client (Odoo 19+, high performance)
+  - Same interface as XmlRpcClient
+  - 2-3x faster than XML-RPC
+  - No username required (API key only)
+  - Native JSON payloads
 
-- **`component.py`** - Main component with extraction logic
+**`configuration.py`** - Pydantic models for validation
+  - `Parameters` - Global connection parameters
+  - `RowConfiguration` - Per-row extraction configuration
+  - URL validation, field validation, encrypted #api_key support
+
+**`component.py`** - Main component with extraction logic
   - `run()` - Clean orchestrator (load state → extract → write state)
-  - `_extract_endpoint()` - Per-model extraction logic
-  - `_split_records()` - Smart relational field handling (@staticmethod)
-  - `_write_csv()` - CSV generation (@staticmethod)
+  - `_extract_data()` - Per-model extraction with cursor-based pagination
+  - `_split_records()` - Smart relational field handling (returns `SplitTablesResult`)
+  - `_write_csv()` - CSV generation with proper escaping
+  - `_write_metadata()` - Schema documentation generation
   - **Sync Actions:**
     - `test_connection_action()` - Test credentials (@sync_action)
+    - `list_databases_action()` - Load databases for dropdown (@sync_action)
     - `list_models_action()` - Load models for dropdown (@sync_action)
-    - `list_fields_action()` - Load fields for dropdown (@sync_action)
+    - `list_fields_action()` - Load fields for multi-select (@sync_action)
 
 ### Patterns Used
+
+- **Configuration Rows Pattern**: One row = one model (modern Keboola standard)
+- **Client Abstraction**: Protocol-agnostic interface (XmlRpcClient + Json2Client)
 - **Orchestrator Pattern**: `run()` delegates to well-named methods
+- **Cursor-Based Pagination**: `id > cursor_id` for efficient large dataset handling
 - **Load-Once/Write-Once**: State loaded at start, written at end
-- **Nested State**: `state["endpoints"][table]["last_id"]` structure
 - **Sync Actions**: Dynamic UI with @sync_action decorator
 - **Type Safety**: Full type hints throughout (Python 3.13)
+- **Dataclass Architecture**: `BridgeTableMetadata`, `SplitTablesResult` for type-safe structures
 
 ## Tested Against
 
-- **Odoo Version**: 19.0-20251208
+- **Odoo Versions**: 18.0, 19.0
 - **Python Version**: 3.13
-- **Test Records**: 40+ partners, 20+ companies
-- **Incremental Runs**: Verified across multiple runs
+- **Protocols**: XML-RPC (universal), JSON-2 (Odoo 19+)
+- **Test Records**: 40+ partners, 20+ relationship records
+- **Incremental Runs**: Verified across multiple runs with state persistence
 
 ## License
 
