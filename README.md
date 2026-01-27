@@ -5,7 +5,7 @@ Extract data from Odoo ERP systems using XML-RPC or JSON-2 protocols with dynami
 ## Features
 
 ### Core Capabilities
-- ✅ **Dual Protocol Support** - Choose between XML-RPC (all versions) or JSON-2 (Odoo 19+, 2-3x faster)
+- ✅ **Dual Protocol Support** - Choose between XML-RPC (all versions) or JSON-2 (Odoo 19+)
 - ✅ **Dynamic Model Discovery** - Browse and select from hundreds of Odoo models via UI
 - ✅ **Field Discovery** - Automatically load field definitions for selected models
 - ✅ **Database Discovery** - Auto-discover available databases on Odoo instance
@@ -80,15 +80,15 @@ Each configuration row defines extraction for ONE Odoo model:
 - ✅ **Compatibility:** All Odoo versions (8.0+)
 - ✅ **Stability:** Battle-tested, widely used
 - ✅ **Username required:** Must provide username
-- ⚠️ **Performance:** Slower than JSON-2 (XML overhead)
+- ⚠️ **Performance:** XML encoding overhead
 
 ### JSON-2 (Modern - Odoo 19+)
-- ✅ **Performance:** 2-3x faster than XML-RPC
-- ✅ **Modern:** Native JSON, smaller payloads
+- ✅ **Performance:** Native JSON, more efficient than XML-RPC
+- ✅ **Modern:** Cleaner API, smaller payloads
 - ✅ **No username needed:** API key is sufficient
 - ⚠️ **Compatibility:** Odoo 19.0+ only
 
-**Recommendation:** Use JSON-2 if you're on Odoo 19+, otherwise XML-RPC.
+**Recommendation:** Use JSON-2 if you're on Odoo 19+ for better performance, otherwise XML-RPC.
 
 ## Example Configuration
 
