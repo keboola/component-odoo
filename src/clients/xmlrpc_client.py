@@ -2,7 +2,6 @@
 Odoo XML-RPC API Client
 
 Handles authentication and data extraction from Odoo ERP via XML-RPC.
-Uses modern Python 3.9+ type hints with built-in generics.
 """
 
 import logging
