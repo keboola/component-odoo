@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 from keboola.component.exceptions import UserException
 
-from clients.xmlrpc_client import XmlRpcClient
+from shared.clients.xmlrpc_client import XmlRpcClient
 
 URL = "https://demo.odoo.com"
 DATABASE = "demo"
@@ -20,7 +20,7 @@ API_KEY = "test_api_key"
 def mock_proxy(mocker):
     """Patch ServerProxy globally; return a mock instance used for all proxies."""
     mock_instance = MagicMock()
-    mocker.patch("clients.xmlrpc_client.xmlrpc.client.ServerProxy", return_value=mock_instance)
+    mocker.patch("shared.clients.xmlrpc_client.xmlrpc.client.ServerProxy", return_value=mock_instance)
     return mock_instance
 
 

@@ -2,6 +2,12 @@ version = 1
 revision = 3
 requires-python = "==3.13.*"
 
+[manifest]
+members = [
+    "odoo-extractor",
+    "shared",
+]
+
 [[package]]
 name = "aiolimiter"
 version = "1.2.1"
@@ -289,6 +295,7 @@ wheels = [
 
 [[package]]
 name = "odoo-extractor"
+version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "freezegun" },
@@ -297,6 +304,7 @@ dependencies = [
     { name = "keboola-utils" },
     { name = "mock" },
     { name = "pydantic" },
+    { name = "shared" },
 ]
 
 [package.dev-dependencies]
@@ -316,6 +324,7 @@ requires-dist = [
     { name = "keboola-utils", specifier = ">=1.1.0" },
     { name = "mock", specifier = ">=5.2.0" },
     { name = "pydantic", specifier = ">=2.11.3" },
+    { name = "shared", editable = "packages/shared" },
 ]
 
 [package.metadata.requires-dev]
@@ -593,6 +602,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/8b/fd/86c2309a254b4e0982b3423504614d9f05b077961167a31bdb5b533be8a9/ruff-0.14.12-py3-none-win_amd64.whl", hash = "sha256:8da366e9942b26ac1fb0df43264a3550655160b9536cdb66a2b070a22b6e5d6a", size = 14105034, upload-time = "2026-01-15T16:22:10.139Z" },
     { url = "https://files.pythonhosted.org/packages/5c/0a/8f0d458479113587b1dfd3fabedfd3f1df4653801273993b1f4dc31a935f/ruff-0.14.12-py3-none-win_arm64.whl", hash = "sha256:f0672b72872dc204580d2d3f8bdc4e922c88a0f93e2a3fb799ca085797a5a7c4", size = 13064991, upload-time = "2026-01-15T16:21:35.436Z" },
 ]
+
+[[package]]
+name = "shared"
+version = "0.0.0"
+source = { editable = "packages/shared" }
 
 [[package]]
 name = "six"

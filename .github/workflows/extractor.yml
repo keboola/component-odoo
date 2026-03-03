@@ -1,10 +1,14 @@
-name: Keboola Component Build & Deploy Pipeline
+name: Extractor Build & Deploy Pipeline
 on:
   push:  # skip the workflow on the main branch without tags
     branches-ignore:
       - main
     tags:
       - "*"
+    paths:
+      - "packages/**"
+      - "extractor/**"
+      - ".github/workflows/extractor.yml"
 
 concurrency: ci-${{ github.ref }}  # to avoid tag collisions in the ECR
 env:
@@ -97,7 +101,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile
+          file: ./extractor/Dockerfile
           tags: ${{ env.KBC_DEVELOPERPORTAL_APP }}:latest
           outputs: type=docker,dest=/tmp/${{ env.KBC_DEVELOPERPORTAL_APP }}.tar
 
@@ -127,9 +131,9 @@ jobs:
         run: |
           docker load --input /tmp/${{ env.KBC_DEVELOPERPORTAL_APP }}.tar
           docker image ls -a
-          docker run ${{ env.KBC_DEVELOPERPORTAL_APP }}:latest flake8 .
+          docker run ${{ env.KBC_DEVELOPERPORTAL_APP }}:latest uv run --no-sync flake8 .
           echo "Running unit-tests..."
-          docker run ${{ env.KBC_DEVELOPERPORTAL_APP }}:latest uv run pytest
+          docker run ${{ env.KBC_DEVELOPERPORTAL_APP }}:latest uv run --no-sync pytest
 
   tests-kbc:
     name: Run KBC Tests

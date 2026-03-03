@@ -1,32 +1,26 @@
 """
-Configuration schema for Odoo Extractor.
+Shared Odoo connection configuration.
 
-Uses Pydantic for validation with modern Python 3.9+ type hints.
+Contains connection fields used by both extractor and writer components.
 """
 
-import json
 from typing import Any
 
 from keboola.component.exceptions import UserException
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 PROTOCOL_XMLRPC = "xmlrpc"
+PROTOCOL_JSON2 = "json2"
 
 
-class Configuration(BaseModel):
-    """Configuration for Odoo Extractor - supports both connection and extraction settings."""
+class OdooConnectionConfig(BaseModel):
+    """Shared Odoo connection configuration — URL, credentials, protocol."""
 
     odoo_url: str = Field(description="Odoo instance URL")
     database: str = Field(default="", description="Database name")
     username: str | None = Field(default=None, description="Username/email")
     api_key: str = Field(default="", alias="#api_key", description="API key")
     api_protocol: str = Field(default=PROTOCOL_XMLRPC, description="API protocol: xmlrpc or json2")
-
-    model: str = Field(default="", description="Odoo model name")
-    fields: list[str] | None = Field(default=None, description="Fields to extract")
-    domain: str | None = Field(default=None, description="Odoo domain filter as JSON string")
-    incremental: bool = Field(default=False, description="Enable incremental loading")
-    page_size: int = Field(default=1000, description="Number of records per page")
 
     def __init__(self, **data: Any) -> None:
         try:
@@ -46,20 +40,6 @@ class Configuration(BaseModel):
         if not v.startswith(("http://", "https://")):
             raise ValueError("Odoo URL must start with http:// or https://")
         return v.rstrip("/")
-
-    @property
-    def table_name(self) -> str:
-        if self.model:
-            return f"{self.model.replace('.', '_')}.csv"
-        return ""
-
-    def get_domain(self) -> list[Any]:
-        if not self.domain:
-            return []
-        try:
-            return json.loads(self.domain)
-        except json.JSONDecodeError:
-            raise UserException(f"Invalid domain JSON: {self.domain}")
 
     class Config:
         populate_by_name = True

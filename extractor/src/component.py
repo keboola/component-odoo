@@ -11,14 +11,15 @@ from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
+from configuration import Configuration
 from keboola.component.base import ComponentBase, sync_action
 from keboola.component.exceptions import UserException
 from keboola.component.sync_actions import SelectElement
 
-from clients.json2_client import Json2Client
-from clients.xmlrpc_client import XmlRpcClient
-from configuration import Configuration
+from shared.clients.json2_client import Json2Client
+from shared.clients.xmlrpc_client import XmlRpcClient
 
 PROTOCOL_JSON2 = "json2"
 PROTOCOL_XMLRPC = "xmlrpc"
@@ -777,8 +778,6 @@ class Component(ComponentBase):
             is_odoo_com = ".odoo.com" in odoo_url.lower()
 
             if is_odoo_com:
-                from urllib.parse import urlparse
-
                 parsed = urlparse(odoo_url)
                 hostname = parsed.hostname or ""
                 subdomain = hostname.replace(".odoo.com", "").replace(".dev", "").replace(".saas", "")

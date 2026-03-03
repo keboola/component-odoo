@@ -1,7 +1,9 @@
 services:
   # for development purposes
   dev:
-    build: .
+    build:
+      context: .
+      dockerfile: extractor/Dockerfile
     volumes:
         - ./:/code
         - ./data:/data
@@ -9,7 +11,9 @@ services:
       - KBC_DATADIR=./data
   test:
     # Use to run flake8 and unittests checks
-    build: .
+    build:
+      context: .
+      dockerfile: extractor/Dockerfile
     volumes:
       - ./:/code
       - ./data:/data

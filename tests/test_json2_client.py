@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 from keboola.component.exceptions import UserException
 
-from clients.json2_client import Json2Client
+from shared.clients.json2_client import Json2Client
 
 URL = "https://demo.odoo.com"
 DATABASE = "demo"
@@ -18,7 +18,7 @@ API_KEY = "test_api_key_123"
 def mock_http(mocker):
     """Patch HttpClient and return the mock instance."""
     mock_instance = MagicMock()
-    mocker.patch("clients.json2_client.HttpClient", return_value=mock_instance)
+    mocker.patch("shared.clients.json2_client.HttpClient", return_value=mock_instance)
     return mock_instance
 
 
@@ -29,7 +29,7 @@ def client(mock_http):
 
 class TestInitialization:
     def test_http_client_configured_correctly(self, mocker):
-        mock_class = mocker.patch("clients.json2_client.HttpClient")
+        mock_class = mocker.patch("shared.clients.json2_client.HttpClient")
         Json2Client(url=URL, database=DATABASE, username=None, api_key=API_KEY)
 
         call_kwargs = mock_class.call_args.kwargs

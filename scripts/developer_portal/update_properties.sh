@@ -42,20 +42,20 @@ update_property() {
 
 app_id="$KBC_DEVELOPERPORTAL_APP"
 
-update_property "$app_id" "isDeployReady" "component_config/isDeployReady.md"
-update_property "$app_id" "longDescription" "component_config/component_long_description.md"
-update_property "$app_id" "configurationSchema" "component_config/configSchema.json"
-update_property "$app_id" "configurationRowSchema" "component_config/configRowSchema.json"
-update_property "$app_id" "configurationDescription" "component_config/configuration_description.md"
-update_property "$app_id" "shortDescription" "component_config/component_short_description.md"
-update_property "$app_id" "logger" "component_config/logger"
-update_property "$app_id" "loggerConfiguration" "component_config/loggerConfiguration.json"
-update_property "$app_id" "licenseUrl" "component_config/licenseUrl.md"
-update_property "$app_id" "documentationUrl" "component_config/documentationUrl.md"
-update_property "$app_id" "sourceCodeUrl" "component_config/sourceCodeUrl.md"
-update_property "$app_id" "uiOptions" "component_config/uiOptions.md"
+update_property "$app_id" "isDeployReady" "extractor/component_config/isDeployReady.md"
+update_property "$app_id" "longDescription" "extractor/component_config/component_long_description.md"
+update_property "$app_id" "configurationSchema" "extractor/component_config/configSchema.json"
+update_property "$app_id" "configurationRowSchema" "extractor/component_config/configRowSchema.json"
+update_property "$app_id" "configurationDescription" "extractor/component_config/configuration_description.md"
+update_property "$app_id" "shortDescription" "extractor/component_config/component_short_description.md"
+update_property "$app_id" "logger" "extractor/component_config/logger"
+update_property "$app_id" "loggerConfiguration" "extractor/component_config/loggerConfiguration.json"
+update_property "$app_id" "licenseUrl" "extractor/component_config/licenseUrl.md"
+update_property "$app_id" "documentationUrl" "extractor/component_config/documentationUrl.md"
+update_property "$app_id" "sourceCodeUrl" "extractor/component_config/sourceCodeUrl.md"
+update_property "$app_id" "uiOptions" "extractor/component_config/uiOptions.md"
 
 # Update the actions.md file
 source "$(dirname "$0")/fn_actions_md_update.sh"
 # update_property actions
-update_property "$app_id" "actions" "component_config/actions.md"
+update_property "$app_id" "actions" "extractor/component_config/actions.md"
