@@ -1,12 +1,10 @@
 #!/bin/bash
 
-# Set the path to the Python script file
-PYTHON_FILE="src/component.py"
-# Set the path to the Markdown file containing actions
-MD_FILE="component_config/actions.md"
+# Requires COMPONENT_DIR to be set by the caller (e.g. "extractor" or "writer")
+MD_FILE="$COMPONENT_DIR/component_config/actions.md"
 
-# Get all occurrences of lines containing @sync_action('XXX') from the .py file
-SYNC_ACTIONS=$(grep -o -E "@sync_action\(['\"][^'\"]*['\"]\)" "$PYTHON_FILE" | sed "s/@sync_action(\(['\"]\)\([^'\"]*\)\(['\"]\))/\2/" | sort | uniq)
+# Get all @sync_action declarations from all .py files in the component's src/
+SYNC_ACTIONS=$(grep -roh -E "@sync_action\(['\"][^'\"]*['\"]\)" "$COMPONENT_DIR/src/" | sed "s/@sync_action(\(['\"]\)\([^'\"]*\)\(['\"]\))/\2/" | sort | uniq)
 
 # Check if any sync actions were found
 if [ -n "$SYNC_ACTIONS" ]; then

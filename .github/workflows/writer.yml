@@ -232,4 +232,4 @@ jobs:
       - name: Update developer portal properties
         run: |
           chmod +x scripts/developer_portal/*.sh
-          scripts/developer_portal/update_properties.sh
+          scripts/developer_portal/update_properties.sh writer
