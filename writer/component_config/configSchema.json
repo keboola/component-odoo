@@ -1,0 +1,75 @@
+{
+  "type": "object",
+  "title": "Odoo Writer Configuration",
+  "required": [
+    "odoo_url"
+  ],
+  "properties": {
+    "odoo_url": {
+      "type": "string",
+      "title": "Odoo URL",
+      "description": "Your Odoo instance URL (e.g., https://mycompany.odoo.com or http://localhost:8069)",
+      "propertyOrder": 10
+    },
+    "database": {
+      "type": "string",
+      "title": "Database Name",
+      "description": "Odoo database name",
+      "propertyOrder": 20,
+      "enum": [],
+      "options": {
+        "async": {
+          "action": "listDatabases",
+          "label": "Load Databases"
+        }
+      }
+    },
+    "api_protocol": {
+      "type": "string",
+      "format": "radio",
+      "title": "API Protocol",
+      "enum": [
+        "json2",
+        "xmlrpc"
+      ],
+      "default": "xmlrpc",
+      "propertyOrder": 25,
+      "options": {
+        "enum_titles": [
+          "JSON-2",
+          "XML-RPC"
+        ],
+        "tooltip": "Select JSON-2 for Odoo 19+ (recommended). XML-RPC is deprecated in Odoo 19 and will be removed in Odoo 20, but works with all older versions."
+      }
+    },
+    "username": {
+      "type": "string",
+      "title": "Username",
+      "description": "Required for XML-RPC",
+      "propertyOrder": 30,
+      "options": {
+        "dependencies": {
+          "api_protocol": "xmlrpc"
+        }
+      }
+    },
+    "#api_key": {
+      "type": "string",
+      "format": "password",
+      "title": "API Key",
+      "description": "Generate in user preferences",
+      "propertyOrder": 40
+    },
+    "test_connection": {
+      "type": "button",
+      "format": "test-connection",
+      "propertyOrder": 50,
+      "options": {
+        "async": {
+          "action": "testConnection",
+          "label": "Test Connection"
+        }
+      }
+    }
+  }
+}

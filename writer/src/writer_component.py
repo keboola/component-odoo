@@ -286,6 +286,11 @@ class Component(ComponentBase):
         except Exception as e:
             raise UserException(f"Failed to load fields: {str(e)}")
 
+    @sync_action("listInputTables")
+    def list_input_tables_action(self) -> list[SelectElement]:
+        """List input tables from the storage input mapping."""
+        return [SelectElement(table.destination) for table in self.configuration.tables_input_mapping]
+
     @sync_action("listDatabases")
     def list_databases_action(self) -> list[SelectElement]:
         """
