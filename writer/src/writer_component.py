@@ -9,6 +9,7 @@ import csv
 import logging
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from keboola.component.base import ComponentBase, sync_action
 from keboola.component.exceptions import UserException
@@ -284,6 +285,60 @@ class Component(ComponentBase):
             raise
         except Exception as e:
             raise UserException(f"Failed to load fields: {str(e)}")
+
+    @sync_action("listDatabases")
+    def list_databases_action(self) -> list[SelectElement]:
+        """
+        List available databases on the Odoo instance.
+
+        For odoo.com instances, database listing is blocked for security.
+        This method detects odoo.com and suggests the database name from the URL.
+
+        Returns:
+            Dropdown data with database names
+
+        Raises:
+            UserException: If listing databases fails
+        """
+        try:
+            odoo_url = self.config.odoo_url
+            is_odoo_com = ".odoo.com" in odoo_url.lower()
+
+            if is_odoo_com:
+                parsed = urlparse(odoo_url)
+                hostname = parsed.hostname or ""
+                subdomain = hostname.replace(".odoo.com", "").replace(".dev", "").replace(".saas", "")
+
+                if subdomain:
+                    logging.info(f"Detected odoo.com instance - suggesting database name from subdomain: {subdomain}")
+                    return [SelectElement(value=subdomain)]
+                else:
+                    raise UserException(
+                        "This is an Odoo.com instance. Database listing is blocked for security. "
+                        "Please enter the database name manually (usually matches your subdomain)."
+                    )
+
+            if self.config.api_protocol == PROTOCOL_JSON2:
+                client = Json2Client(odoo_url, "", None, "")
+                databases = client.list_databases()
+            else:
+                client = XmlRpcClient(odoo_url, "", "", "")
+                databases = client.list_databases()
+
+            logging.info(f"Found {len(databases)} database(s): {databases}")
+
+            dropdown_data = [SelectElement(value=db) for db in databases]
+            return dropdown_data
+
+        except UserException as e:
+            if "Access Denied" in str(e) and ".odoo.com" in self.config.odoo_url.lower():
+                raise UserException(
+                    "Database listing is blocked on Odoo.com instances. "
+                    "Please enter the database name manually (it usually matches your subdomain)."
+                )
+            raise e
+        except Exception as e:
+            raise UserException(f"Failed to list databases: {str(e)}")
 
 
 if __name__ == "__main__":
