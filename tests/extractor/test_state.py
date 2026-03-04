@@ -5,11 +5,10 @@ Tests for state management: _validate_state(), incremental cursor, and state per
 from unittest.mock import MagicMock
 
 import pytest
+from component import Component
 from keboola.component.exceptions import UserException
 
-from component import Component
-
-from .conftest import read_state, write_config, write_state
+from ..conftest import read_state, write_config, write_state
 
 
 @pytest.fixture

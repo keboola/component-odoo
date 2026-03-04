@@ -133,7 +133,7 @@ jobs:
           docker image ls -a
           docker run ${{ env.KBC_DEVELOPERPORTAL_APP }}:latest uv run --no-sync flake8 .
           echo "Running unit-tests..."
-          docker run ${{ env.KBC_DEVELOPERPORTAL_APP }}:latest uv run --no-sync pytest
+          docker run ${{ env.KBC_DEVELOPERPORTAL_APP }}:latest uv run --no-sync pytest tests/writer/ tests/shared/
 
   tests-kbc:
     name: Run KBC Tests

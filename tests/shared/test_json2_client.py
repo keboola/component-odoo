@@ -6,7 +6,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from keboola.component.exceptions import UserException
-
 from shared.clients.json2_client import Json2Client
 
 URL = "https://demo.odoo.com"

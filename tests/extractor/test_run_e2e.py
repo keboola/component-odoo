@@ -8,10 +8,9 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
 from component import Component
 
-from .conftest import read_csv, read_state, write_config
+from ..conftest import read_csv, read_state, write_config
 
 
 @pytest.fixture
@@ -139,7 +138,7 @@ class TestRelationalFields:
 
 class TestIncrementalExtraction:
     def test_cursor_from_state_applied_to_domain(self, kbc_datadir, mocker, mock_client):
-        from .conftest import write_state
+        from ..conftest import write_state
 
         write_state(
             kbc_datadir,

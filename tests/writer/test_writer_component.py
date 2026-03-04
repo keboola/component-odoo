@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, call
 import pytest
 from writer_component import Component
 
-from .conftest import write_config
+from ..conftest import write_config
 
 BASE_PARAMS = {
     "odoo_url": "https://demo.odoo.com",

@@ -3,9 +3,8 @@ Tests for the Configuration class — defaults, aliases, domain parsing, and pro
 """
 
 import pytest
-from keboola.component.exceptions import UserException
-
 from configuration import Configuration
+from keboola.component.exceptions import UserException
 
 BASE_URL = "https://demo.odoo.com"
 

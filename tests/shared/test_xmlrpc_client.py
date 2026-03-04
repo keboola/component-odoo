@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from keboola.component.exceptions import UserException
-
 from shared.clients.xmlrpc_client import XmlRpcClient
 
 URL = "https://demo.odoo.com"
