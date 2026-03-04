@@ -275,6 +275,54 @@ class Json2Client:
                 raise e
             raise UserException(f"JSON-2 failed to fetch data from {model}: {str(e)}")
 
+    def create(self, model: str, records: list[dict[str, Any]]) -> list[int]:
+        """
+        Create records in an Odoo model.
+
+        Args:
+            model: Odoo model name (e.g., 'res.partner')
+            records: List of field dicts to create
+
+        Returns:
+            List of created record IDs
+
+        Raises:
+            UserException: If API call fails
+        """
+        try:
+            result = self.http_client.post(
+                endpoint_path=f"{model}/create",
+                json=records,
+                timeout=30,
+            )
+
+            # Odoo JSON-2 returns a list of IDs
+            if isinstance(result, int):
+                created_ids: list[int] = [result]
+            elif isinstance(result, list):
+                created_ids = result
+            else:
+                raise UserException(f"Unexpected response type from Odoo create: {type(result)}")
+
+            logging.info(f"Created {len(created_ids)} record(s) in {model} via JSON-2")
+            return created_ids
+
+        except Exception as e:
+            if hasattr(e, "response") and hasattr(e.response, "status_code"):
+                if e.response.status_code == 401:
+                    raise UserException("JSON-2 authentication failed (HTTP 401): Invalid API key")
+                elif e.response.status_code == 403:
+                    raise UserException(
+                        f"JSON-2 access forbidden (HTTP 403): User lacks permission to create in {model}"
+                    )
+                elif e.response.status_code == 404:
+                    raise UserException(f"JSON-2 model not found (HTTP 404): {model} does not exist or API unavailable")
+                else:
+                    raise UserException(f"JSON-2 failed to create records in {model} (HTTP {e.response.status_code})")
+            if isinstance(e, UserException):
+                raise e
+            raise UserException(f"JSON-2 failed to create records in {model}: {str(e)}")
+
     def list_databases(self) -> list[str]:
         """
         List available databases on the Odoo instance.

@@ -276,6 +276,49 @@ class XmlRpcClient:
         except Exception as e:
             raise UserException(f"XML-RPC connection failed: {str(e)}")
 
+    def create(self, model: str, records: list[dict[str, Any]]) -> list[int]:
+        """
+        Create records in an Odoo model.
+
+        Args:
+            model: Odoo model name (e.g., 'res.partner')
+            records: List of field dicts to create
+
+        Returns:
+            List of created record IDs
+
+        Raises:
+            UserException: If API call fails
+        """
+        if not self.uid:
+            self.authenticate()
+
+        try:
+            result = self.models.execute_kw(
+                self.database,
+                self.uid,
+                self.api_key,
+                model,
+                "create",
+                [records],
+            )
+
+            # Odoo returns a single int for one record, list for multiple
+            if isinstance(result, int):
+                created_ids: list[int] = [result]
+            elif isinstance(result, list):
+                created_ids = result
+            else:
+                raise UserException(f"Unexpected response type from Odoo create: {type(result)}")
+
+            logging.info(f"Created {len(created_ids)} record(s) in {model}")
+            return created_ids
+
+        except xmlrpc.client.Fault as e:
+            raise UserException(f"Odoo API error creating records in {model}: {e.faultString}")
+        except Exception as e:
+            raise UserException(f"Failed to create records in {model}: {str(e)}")
+
     def list_databases(self) -> list[str]:
         """
         List available databases on the Odoo instance.

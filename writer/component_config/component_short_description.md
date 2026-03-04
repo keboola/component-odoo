@@ -1,0 +1,1 @@
+Write data to Odoo ERP via XML-RPC or JSON-2 — create records in any model from a Keboola input table

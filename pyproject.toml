@@ -23,7 +23,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["extractor/src", "src"]
+pythonpath = ["extractor/src", "writer/src", "src"]
 testpaths = ["tests"]
 
 [tool.uv]
