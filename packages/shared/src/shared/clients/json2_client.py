@@ -292,7 +292,7 @@ class Json2Client:
         try:
             result = self.http_client.post(
                 endpoint_path=f"{model}/create",
-                json=records,
+                json={"vals_list": records},
                 timeout=30,
             )
 
@@ -309,6 +309,11 @@ class Json2Client:
 
         except Exception as e:
             if hasattr(e, "response") and hasattr(e.response, "status_code"):
+                detail = ""
+                try:
+                    detail = f": {e.response.text}"
+                except Exception:
+                    pass
                 if e.response.status_code == 401:
                     raise UserException("JSON-2 authentication failed (HTTP 401): Invalid API key")
                 elif e.response.status_code == 403:
@@ -318,7 +323,9 @@ class Json2Client:
                 elif e.response.status_code == 404:
                     raise UserException(f"JSON-2 model not found (HTTP 404): {model} does not exist or API unavailable")
                 else:
-                    raise UserException(f"JSON-2 failed to create records in {model} (HTTP {e.response.status_code})")
+                    raise UserException(
+                        f"JSON-2 failed to create records in {model} (HTTP {e.response.status_code}){detail}"
+                    )
             if isinstance(e, UserException):
                 raise e
             raise UserException(f"JSON-2 failed to create records in {model}: {str(e)}")
