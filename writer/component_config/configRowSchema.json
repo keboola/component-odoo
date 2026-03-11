@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "title": "Odoo Write Job",
+  "required": [
+    "model",
+    "input_table"
+  ],
+  "properties": {
+    "model": {
+      "type": "string",
+      "title": "Odoo Model",
+      "description": "Odoo model name to write into (e.g., res.partner, sale.order)",
+      "propertyOrder": 10,
+      "enum": [],
+      "options": {
+        "async": {
+          "action": "listModels",
+          "label": "Load Models"
+        }
+      }
+    },
+    "input_table": {
+      "type": "string",
+      "title": "Input Table",
+      "description": "Keboola input table to read records from",
+      "propertyOrder": 20,
+      "enum": [],
+      "options": {
+        "async": {
+          "action": "listInputTables",
+          "label": "Load Tables"
+        }
+      }
+    },
+    "batch_size": {
+      "type": "integer",
+      "title": "Batch Size",
+      "description": "Number of records per create() API call",
+      "default": 100,
+      "minimum": 1,
+      "propertyOrder": 30
+    }
+  }
+}

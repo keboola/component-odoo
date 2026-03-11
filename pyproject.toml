@@ -1,6 +1,6 @@
 [project]
 name = "odoo-extractor"
-dynamic = ["version"]
+version = "0.0.0"
 readme = "README.md"
 requires-python = "~=3.13.0"
 dependencies = [
@@ -10,14 +10,31 @@ dependencies = [
     "keboola-utils>=1.1.0",
     "mock>=5.2.0",
     "pydantic>=2.11.3",
+    "shared",
 ]
 
 [dependency-groups]
 dev = [
     "flake8>=7.2.0",
     "pre-commit>=4.5.0",
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
     "ruff>=0.11.5",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["extractor/src", "writer/src", "src"]
+testpaths = ["tests/extractor", "tests/writer", "tests/shared"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+shared = { workspace = true }
+
 
 [tool.ruff]
 line-length = 120

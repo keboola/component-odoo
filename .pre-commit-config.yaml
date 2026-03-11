@@ -29,9 +29,9 @@ repos:
         types: [python]
         pass_filenames: false
 
-      - id: unittest
-        name: unittest
-        entry: uv run python -m unittest discover
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
         language: system
         types: [python]
         pass_filenames: false
