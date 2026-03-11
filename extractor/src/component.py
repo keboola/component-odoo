@@ -17,6 +17,7 @@ from configuration import Configuration
 from keboola.component.base import ComponentBase, sync_action
 from keboola.component.exceptions import UserException
 from keboola.component.sync_actions import SelectElement
+
 from shared.clients.json2_client import Json2Client
 from shared.clients.xmlrpc_client import XmlRpcClient
 
@@ -562,10 +563,11 @@ class Component(ComponentBase):
             # Extract the specific reason if present
             parts = error_str.split(":")
             if len(parts) > 1:
-                return parts[-1].strip()
-            return error_str
+                return parts[-1].strip()[:50]
+            return error_str[:50]
         else:
-            return error_str
+            # Keep it short, max 50 chars
+            return error_str[:50] + "..." if len(error_str) > 50 else error_str
 
     # === Sync Actions (UI buttons) ===
 
