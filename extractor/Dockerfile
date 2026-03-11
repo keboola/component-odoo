@@ -24,4 +24,4 @@ COPY scripts/ scripts/
 COPY .flake8 .
 COPY deploy.sh .
 
-CMD ["uv", "run", "--no-sync", "python", "-u", "src/component.py"]
+CMD ["uv", "run", "--no-sync", "python", "-u", "src/extractor_component.py"]

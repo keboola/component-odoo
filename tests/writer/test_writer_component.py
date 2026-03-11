@@ -54,7 +54,7 @@ def run_component(kbc_datadir, mocker, mock_client):
     def _run(parameters: dict, rows: list[dict], client: MagicMock = mock_client) -> Path:
         write_config(kbc_datadir, parameters)
         write_input_csv(kbc_datadir, parameters["input_table"], rows)
-        mocker.patch("writer_component.Component._initialize_client", return_value=client)
+        mocker.patch("writer_component.initialize_client", return_value=client)
         Component().run()
         return kbc_datadir
 
@@ -142,7 +142,7 @@ class TestErrorHandling:
     def test_missing_input_table_raises(self, kbc_datadir, mocker, mock_client):
         write_config(kbc_datadir, BASE_PARAMS)
         # Do NOT write the input CSV
-        mocker.patch("writer_component.Component._initialize_client", return_value=mock_client)
+        mocker.patch("writer_component.initialize_client", return_value=mock_client)
 
         from keboola.component.exceptions import UserException
 

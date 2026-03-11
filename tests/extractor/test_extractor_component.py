@@ -5,8 +5,8 @@ Tests for Component._split_records() and metadata generation.
 from typing import Any
 from unittest.mock import MagicMock
 
-from component import Component
 from configuration import Configuration
+from extractor_component import Component
 
 
 class TestSplitRecords:
@@ -82,7 +82,7 @@ class TestMetadataGeneration:
             t.full_path = str(out_dir / name)
             return t
 
-        mocker.patch("component.Component.__init__", return_value=None)
+        mocker.patch("extractor_component.Component.__init__", return_value=None)
 
         comp = Component()
         comp.client = mock_client

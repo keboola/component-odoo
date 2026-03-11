@@ -4,7 +4,7 @@ Tests for Component._write_csv() — real file I/O with pytest's tmp_path.
 
 import csv
 
-from component import Component
+from extractor_component import Component
 
 
 def read_csv(path):
