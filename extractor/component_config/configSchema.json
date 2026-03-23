@@ -18,6 +18,7 @@
       "propertyOrder": 20,
       "enum": [],
       "options": {
+        "creatable": true,
         "async": {
           "action": "listDatabases",
           "label": "Load Databases"

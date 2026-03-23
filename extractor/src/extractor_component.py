@@ -11,20 +11,12 @@ from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from configuration import Configuration
-from keboola.component.base import ComponentBase, sync_action
+from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
-from keboola.component.sync_actions import SelectElement
-
-from shared.clients.json2_client import Json2Client
-from shared.clients.xmlrpc_client import XmlRpcClient
-
-PROTOCOL_JSON2 = "json2"
-PROTOCOL_XMLRPC = "xmlrpc"
-DISPLAY_JSON2 = "JSON-2"
-DISPLAY_XMLRPC = "XML-RPC"
+from shared.connection import PROTOCOL_XMLRPC
+from shared.odoo_base import OdooSyncActionsMixin, initialize_client
 
 
 @dataclass
@@ -66,7 +58,7 @@ class SplitTablesResult:
     bridge_tables: dict[str, BridgeTableMetadata]
 
 
-class Component(ComponentBase):
+class Component(OdooSyncActionsMixin, ComponentBase):
     """
     Odoo Extractor Component.
 
@@ -79,7 +71,7 @@ class Component(ComponentBase):
         super().__init__()
         self.state: dict[str, Any] = {}
         self.config = Configuration(**self.configuration.parameters)
-        self.client = self._initialize_client(self.config)
+        self.client = initialize_client(self.config)
 
     def run(self) -> None:
         """Main extraction logic."""
@@ -97,25 +89,6 @@ class Component(ComponentBase):
             self.write_state_file(self.state)
 
         logging.info("Extraction completed successfully")
-
-    def _initialize_client(self, params: Configuration) -> XmlRpcClient | Json2Client:
-        """
-        Initialize and return appropriate Odoo client based on api_protocol config.
-
-        Args:
-            params: Configuration object
-
-        Returns:
-            Initialized XmlRpcClient or Json2Client based on api_protocol setting
-        """
-        ClientClass = Json2Client if params.api_protocol == PROTOCOL_JSON2 else XmlRpcClient
-
-        return ClientClass(
-            url=params.odoo_url,
-            database=params.database,
-            username=params.username,
-            api_key=params.api_key,
-        )
 
     def _validate_config_for_run(self) -> None:
         """Validate configuration before data extraction."""
@@ -543,276 +516,6 @@ class Component(ComponentBase):
         logging.info(f"Wrote metadata file: metadata__{table_name}.csv ({len(metadata_rows)} fields)")
 
     # === Helper Methods ===
-
-    def _extract_short_error(self, exception: Exception) -> str:
-        """Extract concise error message from exception."""
-        error_str = str(exception)
-
-        # Map common errors to short forms
-        if "Invalid apikey" in error_str or "Invalid API key" in error_str:
-            return "invalid API key"
-        elif "401" in error_str:
-            return "invalid API key"
-        elif "403" in error_str or "forbidden" in error_str.lower():
-            return "access forbidden"
-        elif "404" in error_str:
-            return "endpoint not found"
-        elif "invalid credentials" in error_str.lower():
-            return "invalid credentials"
-        elif "authentication failed" in error_str.lower():
-            # Extract the specific reason if present
-            parts = error_str.split(":")
-            if len(parts) > 1:
-                return parts[-1].strip()[:50]
-            return error_str[:50]
-        else:
-            # Keep it short, max 50 chars
-            return error_str[:50] + "..." if len(error_str) > 50 else error_str
-
-    # === Sync Actions (UI buttons) ===
-
-    @sync_action("testConnection")
-    def test_connection_action(self) -> dict[str, str]:
-        """
-        Test connection showing:
-        1. Odoo version
-        2. Protocol availability (✓/✗ for both JSON-2 and XML-RPC)
-        3. Authentication status for selected protocol only
-        4. Model count if authentication succeeds
-
-        Message format:
-        "Odoo {version}. Supports: JSON-2 {✓/✗}, XML-RPC {✓/✗}. Authenticated using {protocol}, {N} models"
-
-        Returns:
-            Success/error response for UI
-        """
-        try:
-            # All validation happens in Configuration __init__
-            # Just extract the values we need
-            odoo_url = self.config.odoo_url
-            database = self.config.database
-            username = self.config.username
-            api_key = self.config.api_key
-            selected_protocol = self.config.api_protocol
-
-            # Step 1: Check protocol availability (no auth required)
-            protocols_available = {}
-            odoo_version = None
-
-            # Initialize clients
-            xmlrpc_client = XmlRpcClient(odoo_url, database, username, api_key)
-            json2_client = Json2Client(odoo_url, database, username, api_key)
-
-            # Check XML-RPC availability
-            try:
-                version = xmlrpc_client.get_version()
-                protocols_available[DISPLAY_XMLRPC] = True
-                odoo_version = version
-            except Exception as e:
-                protocols_available[DISPLAY_XMLRPC] = False
-                logging.debug(f"XML-RPC availability check failed: {e}")
-
-            # Check JSON-2 availability
-            try:
-                version = json2_client.get_version()
-                protocols_available[DISPLAY_JSON2] = True
-                if not odoo_version:
-                    odoo_version = version
-            except Exception as e:
-                protocols_available[DISPLAY_JSON2] = False
-                logging.debug(f"JSON-2 availability check failed: {e}")
-
-            # Fail if no version detected from any protocol
-            if not odoo_version:
-                raise UserException("Cannot connect to Odoo instance at this URL")
-
-            # Step 2: Build "Supports" section
-            supports_parts = []
-            for protocol in [DISPLAY_JSON2, DISPLAY_XMLRPC]:
-                symbol = "✓" if protocols_available.get(protocol, False) else "✗"
-                supports_parts.append(f"{protocol} {symbol}")
-            supports_str = ", ".join(supports_parts)
-
-            # Step 3: Test authentication for selected protocol only
-            selected_client = None
-            auth_message = ""
-
-            if selected_protocol == PROTOCOL_JSON2:
-                if not protocols_available[DISPLAY_JSON2]:
-                    return {
-                        "status": "error",
-                        "message": (
-                            f"Odoo {odoo_version}. Supports: {supports_str}. "
-                            f"{DISPLAY_JSON2} not available on this instance"
-                        ),
-                    }
-                try:
-                    json2_client.test_connection()
-                    selected_client = json2_client
-                    auth_message = f"Authenticated using {DISPLAY_JSON2}"
-                except Exception as e:
-                    short_error = self._extract_short_error(e)
-                    return {
-                        "status": "error",
-                        "message": (
-                            f"Odoo {odoo_version}. Supports: {supports_str}. "
-                            f"Authentication failed using {DISPLAY_JSON2} ({short_error})"
-                        ),
-                    }
-            else:  # xmlrpc (default)
-                if not protocols_available[DISPLAY_XMLRPC]:
-                    return {
-                        "status": "error",
-                        "message": (
-                            f"Odoo {odoo_version}. Supports: {supports_str}. "
-                            f"{DISPLAY_XMLRPC} not available on this instance"
-                        ),
-                    }
-                try:
-                    xmlrpc_client.test_connection()
-                    selected_client = xmlrpc_client
-                    auth_message = f"Authenticated using {DISPLAY_XMLRPC}"
-                except Exception as e:
-                    short_error = self._extract_short_error(e)
-                    return {
-                        "status": "error",
-                        "message": (
-                            f"Odoo {odoo_version}. Supports: {supports_str}. "
-                            f"Authentication failed using {DISPLAY_XMLRPC} ({short_error})"
-                        ),
-                    }
-
-            # Step 4: Get model count
-            model_suffix = ""
-            try:
-                models = selected_client.list_models()
-                model_suffix = f", {len(models)} models"
-            except Exception as e:
-                logging.warning(f"Could not fetch model count: {e}")
-
-            # Step 5: Build final success message
-            message = f"Odoo {odoo_version}. Supports: {supports_str}. {auth_message}{model_suffix}"
-
-            return {"status": "success", "message": message}
-
-        except UserException as e:
-            raise e
-        except Exception as e:
-            raise UserException(f"Connection test failed: {str(e)}")
-
-    @sync_action("listModels")
-    def list_models_action(self) -> list[SelectElement]:
-        """
-        List available Odoo models - sync action for model dropdown.
-
-        Returns:
-            Dropdown data with model names
-        """
-        try:
-            models = self.client.list_models()
-
-            models_sorted = sorted(models, key=lambda m: m["model"])
-
-            dropdown_data = [
-                SelectElement(
-                    value=model["model"],
-                    label=f"{model['model']} - {model['name']}",
-                )
-                for model in models_sorted
-            ]
-
-            return dropdown_data
-
-        except UserException as e:
-            raise e
-        except Exception as e:
-            raise UserException(f"Failed to load models: {str(e)}")
-
-    @sync_action("listFields")
-    def list_fields_action(self) -> list[SelectElement]:
-        """List fields for selected model."""
-        try:
-            model = self.config.model
-            if not model:
-                raise UserException("Please select a model first")
-
-            fields_dict = self.client.get_model_fields(model)
-
-            dropdown_data = []
-            for field_name, field_info in fields_dict.items():
-                if field_name == "_unknown":
-                    continue
-
-                field_label = field_info.get("string", field_name)
-                field_type = field_info.get("type", "unknown")
-                dropdown_data.append(
-                    SelectElement(
-                        value=field_name,
-                        label=f"{field_label} ({field_name}) - {field_type}",
-                    )
-                )
-
-            return dropdown_data
-
-        except UserException as e:
-            raise e
-        except Exception as e:
-            raise UserException(f"Failed to load fields: {str(e)}")
-
-    @sync_action("listDatabases")
-    def list_databases_action(self) -> list[SelectElement]:
-        """
-        List available databases on the Odoo instance.
-
-        For odoo.com instances, database listing is blocked for security.
-        This method detects odoo.com and suggests the database name from the URL.
-
-        Returns:
-            Dropdown data with database names
-
-        Raises:
-            UserException: If listing databases fails
-        """
-        try:
-            odoo_url = self.config.odoo_url
-            is_odoo_com = ".odoo.com" in odoo_url.lower()
-
-            if is_odoo_com:
-                parsed = urlparse(odoo_url)
-                hostname = parsed.hostname or ""
-                subdomain = hostname.replace(".odoo.com", "").replace(".dev", "").replace(".saas", "")
-
-                if subdomain:
-                    logging.info(f"Detected odoo.com instance - suggesting database name from subdomain: {subdomain}")
-                    return [SelectElement(value=subdomain)]
-                else:
-                    raise UserException(
-                        "This is an Odoo.com instance. Database listing is blocked for security. "
-                        "Please enter the database name manually (usually matches your subdomain)."
-                    )
-
-            if self.config.api_protocol == PROTOCOL_JSON2:
-                client = Json2Client(odoo_url, "", None, "")
-                databases = client.list_databases()
-            else:
-                client = XmlRpcClient(odoo_url, "", "", "")
-                databases = client.list_databases()
-
-            logging.info(f"Found {len(databases)} database(s): {databases}")
-
-            # Convert to dropdown format
-            dropdown_data = [SelectElement(value=db) for db in databases]
-            return dropdown_data
-
-        except UserException as e:
-            if "Access Denied" in str(e) and ".odoo.com" in self.config.odoo_url.lower():
-                raise UserException(
-                    "Database listing is blocked on Odoo.com instances. "
-                    "Please enter the database name manually (it usually matches your subdomain)."
-                )
-            raise e
-        except Exception as e:
-            raise UserException(f"Failed to list databases: {str(e)}")
 
 
 if __name__ == "__main__":

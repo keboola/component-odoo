@@ -5,7 +5,7 @@ Tests for state management: _validate_state(), incremental cursor, and state per
 from unittest.mock import MagicMock
 
 import pytest
-from component import Component
+from extractor_component import Component
 from keboola.component.exceptions import UserException
 
 from ..conftest import read_state, write_config, write_state
@@ -27,7 +27,7 @@ def run(kbc_datadir, mocker, mock_client):
 
     def _run(params: dict, client=mock_client):
         write_config(kbc_datadir, params)
-        mocker.patch("component.Component._initialize_client", return_value=client)
+        mocker.patch("extractor_component.initialize_client", return_value=client)
         Component().run()
         return kbc_datadir
 
@@ -47,7 +47,7 @@ class TestValidateState:
     def test_model_change_raises(self, kbc_datadir, mocker, mock_client):
         write_state(kbc_datadir, {"model": "sale.order", "domain": "", "last_id": 10})
         write_config(kbc_datadir, {**BASE_PARAMS, "model": "res.partner"})
-        mocker.patch("component.Component._initialize_client", return_value=mock_client)
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
 
         with pytest.raises(UserException, match="Model changed"):
             Component().run()
@@ -68,7 +68,7 @@ class TestValidateState:
                 "domain": '[["is_company", "=", false]]',
             },
         )
-        mocker.patch("component.Component._initialize_client", return_value=mock_client)
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
 
         with pytest.raises(UserException, match="Domain filter changed"):
             Component().run()
@@ -100,7 +100,7 @@ class TestIncrementalCursor:
             return []
 
         mock_client.search_read = capture
-        mocker.patch("component.Component._initialize_client", return_value=mock_client)
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
         Component().run()
 
         id_filter = [d for d in domains_seen[0] if isinstance(d, tuple) and d[0] == "id"]
@@ -117,7 +117,7 @@ class TestIncrementalCursor:
             return [{"id": 1}] if len(domains_seen) == 1 else []
 
         mock_client.search_read = capture
-        mocker.patch("component.Component._initialize_client", return_value=mock_client)
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
         Component().run()
 
         id_filters = [d for d in domains_seen[0] if isinstance(d, tuple) and d[0] == "id"]
@@ -134,7 +134,7 @@ class TestStatePersistence:
         client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
         client.search_read.return_value = [{"id": 50}]
 
-        mocker.patch("component.Component._initialize_client", return_value=client)
+        mocker.patch("extractor_component.initialize_client", return_value=client)
         Component().run()
 
         assert read_state(kbc_datadir)["last_id"] == 50
@@ -148,7 +148,7 @@ class TestStatePersistence:
         client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
         client.search_read.return_value = [{"id": 999}]
 
-        mocker.patch("component.Component._initialize_client", return_value=client)
+        mocker.patch("extractor_component.initialize_client", return_value=client)
         Component().run()
 
         assert read_state(kbc_datadir)["last_id"] == 0

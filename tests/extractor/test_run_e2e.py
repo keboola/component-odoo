@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from component import Component
+from extractor_component import Component
 
 from ..conftest import read_csv, read_state, write_config
 
@@ -27,7 +27,7 @@ def run_component(kbc_datadir, mocker, mock_client):
 
     def _run(parameters: dict, client: MagicMock = mock_client) -> Path:
         write_config(kbc_datadir, parameters)
-        mocker.patch("component.Component._initialize_client", return_value=client)
+        mocker.patch("extractor_component.initialize_client", return_value=client)
         Component().run()
         return kbc_datadir
 
@@ -159,7 +159,7 @@ class TestIncrementalExtraction:
 
         mock_client.search_read = capture_search_read
         mock_client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
-        mocker.patch("component.Component._initialize_client", return_value=mock_client)
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
 
         Component().run()
 
@@ -186,7 +186,7 @@ class TestIncrementalExtraction:
 
         mock_client.search_read = capture
         mock_client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
-        mocker.patch("component.Component._initialize_client", return_value=mock_client)
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
 
         Component().run()
 
