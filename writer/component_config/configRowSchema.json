@@ -39,6 +39,84 @@
       "default": 100,
       "minimum": 1,
       "propertyOrder": 30
+    },
+    "field_mapping": {
+      "type": "array",
+      "title": "Field Mapping",
+      "format": "table",
+      "description": "Map input table columns to Odoo model fields. Use 'Load Field Mapping' to auto-populate.",
+      "propertyOrder": 40,
+      "items": {
+        "type": "object",
+        "required": [
+          "source_column",
+          "destination_field"
+        ],
+        "properties": {
+          "source_column": {
+            "type": "string",
+            "title": "Source Column",
+            "options": {
+              "readOnly": true
+            }
+          },
+          "destination_field": {
+            "type": "string",
+            "title": "Destination Field",
+            "format": "select",
+            "watch": {
+              "api_fields": "_metadata_.api_fields"
+            },
+            "enumSource": [
+              {
+                "source": "api_fields",
+                "value": "{{item.field_name}}",
+                "title": "{{item.label}}"
+              }
+            ],
+            "options": {
+              "tags": true
+            }
+          }
+        }
+      }
+    },
+    "load_mapping": {
+      "type": "button",
+      "title": "Load Field Mapping",
+      "format": "sync-action",
+      "propertyOrder": 50,
+      "options": {
+        "async": {
+          "cache": false,
+          "action": "loadFieldMapping",
+          "label": "Load Field Mapping",
+          "autoload": [
+            "model",
+            "input_table"
+          ]
+        }
+      }
+    },
+    "continue_on_error": {
+      "type": "boolean",
+      "format": "checkbox",
+      "title": "Continue on Error",
+      "description": "If enabled, failed records are written to an output table instead of stopping the job",
+      "default": false,
+      "propertyOrder": 60
+    },
+    "_metadata_": {
+      "type": "object",
+      "propertyOrder": 70,
+      "options": {
+        "hidden": true
+      },
+      "properties": {
+        "api_fields": {
+          "type": "array"
+        }
+      }
     }
   }
 }
