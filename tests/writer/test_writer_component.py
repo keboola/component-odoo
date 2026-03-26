@@ -173,3 +173,127 @@ class TestConnectionCheck:
         rows = [{"name": "Alice"}]
         run_component(BASE_PARAMS, rows)
         mock_client.test_connection.assert_called_once()
+
+
+class TestFieldMapping:
+    def test_field_mapping_renames_columns(self, run_component, mock_client):
+        rows = [{"csv_name": "Alice", "csv_email": "alice@example.com"}]
+        params = {
+            **BASE_PARAMS,
+            "field_mapping": [
+                {"source_column": "csv_name", "destination_field": "name"},
+                {"source_column": "csv_email", "destination_field": "email"},
+            ],
+        }
+        run_component(params, rows)
+
+        sent = mock_client.create.call_args[0][1]
+        assert sent[0] == {"name": "Alice", "email": "alice@example.com"}
+
+    def test_field_mapping_drops_unmapped_columns(self, run_component, mock_client):
+        rows = [{"name": "Alice", "unmapped_col": "should be dropped"}]
+        params = {
+            **BASE_PARAMS,
+            "field_mapping": [
+                {"source_column": "name", "destination_field": "name"},
+            ],
+        }
+        run_component(params, rows)
+
+        sent = mock_client.create.call_args[0][1]
+        assert sent[0] == {"name": "Alice"}
+        assert "unmapped_col" not in sent[0]
+
+    def test_field_mapping_empty_values_still_omitted(self, run_component, mock_client):
+        rows = [{"csv_name": "Alice", "csv_email": ""}]
+        params = {
+            **BASE_PARAMS,
+            "field_mapping": [
+                {"source_column": "csv_name", "destination_field": "name"},
+                {"source_column": "csv_email", "destination_field": "email"},
+            ],
+        }
+        run_component(params, rows)
+
+        sent = mock_client.create.call_args[0][1]
+        assert "email" not in sent[0]
+
+    def test_no_field_mapping_passes_all_columns(self, run_component, mock_client):
+        rows = [{"name": "Alice", "email": "alice@example.com"}]
+        run_component(BASE_PARAMS, rows)
+
+        sent = mock_client.create.call_args[0][1]
+        assert sent[0] == {"name": "Alice", "email": "alice@example.com"}
+
+
+class TestContinueOnError:
+    def test_continue_on_error_collects_failed_records(self, run_component, mock_client, kbc_datadir):
+        from keboola.component.exceptions import UserException
+
+        mock_client.create.side_effect = UserException("Odoo rejected batch")
+        rows = [{"name": "Alice"}, {"name": "Bob"}]
+        params = {**BASE_PARAMS, "continue_on_error": True, "batch_size": 1}
+
+        # Should NOT raise
+        run_component(params, rows)
+
+        # Failed records written to output
+        failed_csv = kbc_datadir / "out" / "tables" / "failed_records.csv"
+        assert failed_csv.exists()
+        with open(failed_csv, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            failed = list(reader)
+        assert len(failed) == 2
+
+    def test_continue_on_error_false_raises_immediately(self, run_component, mock_client):
+        from keboola.component.exceptions import UserException
+
+        mock_client.create.side_effect = UserException("Odoo rejected batch")
+        rows = [{"name": "Alice"}, {"name": "Bob"}]
+        params = {**BASE_PARAMS, "continue_on_error": False, "batch_size": 1}
+
+        with pytest.raises(UserException):
+            run_component(params, rows)
+
+    def test_continue_on_error_partial_success(self, run_component, mock_client, kbc_datadir):
+        from keboola.component.exceptions import UserException
+
+        call_count = 0
+
+        def create_side_effect(model, records):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise UserException("Second batch failed")
+            return [call_count]
+
+        mock_client.create.side_effect = create_side_effect
+        rows = [{"name": "Alice"}, {"name": "Bob"}, {"name": "Charlie"}]
+        params = {**BASE_PARAMS, "continue_on_error": True, "batch_size": 1}
+
+        run_component(params, rows)
+
+        failed_csv = kbc_datadir / "out" / "tables" / "failed_records.csv"
+        assert failed_csv.exists()
+        with open(failed_csv, encoding="utf-8") as f:
+            failed = list(csv.DictReader(f))
+        assert len(failed) == 1
+        assert failed[0]["name"] == "Bob"
+
+
+class TestFuzzyMatch:
+    def test_exact_match(self):
+        result = Component._fuzzy_match_columns(["name"], ["name", "email", "phone"])
+        assert result[0] == {"source_column": "name", "destination_field": "name"}
+
+    def test_case_insensitive_match(self):
+        result = Component._fuzzy_match_columns(["Name"], ["name", "email"])
+        assert result[0]["destination_field"] == "name"
+
+    def test_normalized_match(self):
+        result = Component._fuzzy_match_columns(["partner_name"], ["partnerName", "email"])
+        assert result[0]["destination_field"] == "partnerName"
+
+    def test_no_match_returns_empty(self):
+        result = Component._fuzzy_match_columns(["xyz_unknown"], ["name", "email"])
+        assert result[0]["destination_field"] == ""

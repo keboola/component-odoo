@@ -9,7 +9,6 @@ from typing import Any
 
 from keboola.component.exceptions import UserException
 from pydantic import Field
-
 from shared.connection import OdooConnectionConfig
 
 
