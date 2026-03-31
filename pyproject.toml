@@ -15,11 +15,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "flake8>=7.2.0",
     "pre-commit>=4.5.0",
     "pytest>=8.0",
     "pytest-mock>=3.14",
     "ruff>=0.11.5",
+    "ty>=0.0.24",
 ]
 
 [tool.pytest.ini_options]
@@ -38,3 +38,9 @@ shared = { workspace = true }
 
 [tool.ruff]
 line-length = 120
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[tool.ty.environment]
+extra-paths = ["extractor/src", "writer/src", "packages/shared/src"]

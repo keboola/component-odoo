@@ -21,7 +21,5 @@ RUN uv sync --all-groups --frozen
 COPY writer/src/ src/
 COPY tests/ tests/
 COPY scripts/ scripts/
-COPY .flake8 .
-COPY deploy.sh .
 
 CMD ["uv", "run", "--no-sync", "python", "-u", "src/writer_component.py"]

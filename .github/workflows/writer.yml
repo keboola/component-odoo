@@ -136,7 +136,7 @@ jobs:
         run: |
           docker load --input /tmp/${{ env.KBC_DEVELOPERPORTAL_APP }}.tar
           docker image ls -a
-          docker run ${{ env.KBC_DEVELOPERPORTAL_APP }}:latest uv run --no-sync flake8 .
+          docker run ${{ env.KBC_DEVELOPERPORTAL_APP }}:latest uv run --no-sync ruff check
           echo "Running unit-tests..."
           docker run ${{ env.KBC_DEVELOPERPORTAL_APP }}:latest uv run --no-sync pytest tests/writer/ tests/shared/
 
