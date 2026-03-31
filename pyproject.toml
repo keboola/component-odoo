@@ -15,16 +15,20 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "flake8>=7.2.0",
+    "passlib>=1.7.4",
     "pre-commit>=4.5.0",
+    "psycopg2-binary>=2.9",
     "pytest>=8.0",
     "pytest-mock>=3.14",
+    "pytest-timeout>=2.3",
     "ruff>=0.11.5",
+    "ty>=0.0.24",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["extractor/src", "writer/src", "src"]
 testpaths = ["tests/extractor", "tests/writer", "tests/shared"]
+# integration tests excluded from default run — use: pytest tests/integration/
 
 [tool.uv]
 package = false
@@ -38,3 +42,9 @@ shared = { workspace = true }
 
 [tool.ruff]
 line-length = 120
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[tool.ty.environment]
+extra-paths = ["extractor/src", "writer/src", "packages/shared/src"]
