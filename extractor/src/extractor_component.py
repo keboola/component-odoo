@@ -145,6 +145,9 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         """Extract data with cursor-based pagination."""
         logging.info(f"Extracting {self.config.model} -> {self.config.table_name}")
 
+        # Fetch field type info to ensure consistent column handling for many2one fields
+        field_types = self._get_many2one_fields()
+
         # Check if we're switching from incremental to full load
         state_last_id = self.state.get("last_id", 0)
         if not self.config.incremental and state_last_id > 0:
@@ -185,7 +188,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
                 logging.info("No more records to fetch")
                 break
 
-            result = self._split_records(records, self.config.model, self.config.table_name)
+            result = self._split_records(records, self.config.model, self.config.table_name, field_types)
 
             # Write main table (append after first page)
             mode = "a" if page_num > 1 else "w"
@@ -276,6 +279,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         records: list[dict[str, Any]],
         model_name: str,
         table_name: str,
+        many2one_fields: set[str] | None = None,
     ) -> SplitTablesResult:
         """
         Split records into main table and bridge tables.
@@ -289,6 +293,8 @@ class Component(OdooSyncActionsMixin, ComponentBase):
             records: Raw Odoo records
             model_name: Odoo model name (e.g., 'res.partner')
             table_name: Base table name (e.g., 'res_partner.csv')
+            many2one_fields: Set of field names known to be many2one type.
+                Used to ensure consistent _id/_name columns even when the value is False.
 
         Returns:
             SplitTablesResult containing:
@@ -320,6 +326,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
                     }
                 )
         """
+        many2one_fields = many2one_fields or set()
         main_records = []
         relationship_metadata: dict[str, BridgeTableMetadata] = {}
 
@@ -371,7 +378,11 @@ class Component(OdooSyncActionsMixin, ComponentBase):
 
                 elif value is False:
                     # Odoo uses False for null values
-                    main_record[key] = None
+                    if key in many2one_fields:
+                        main_record[f"{key}_id"] = None
+                        main_record[f"{key}_name"] = None
+                    else:
+                        main_record[key] = None
 
                 else:
                     # Regular scalar field
@@ -515,7 +526,14 @@ class Component(OdooSyncActionsMixin, ComponentBase):
 
         logging.info(f"Wrote metadata file: metadata__{table_name}.csv ({len(metadata_rows)} fields)")
 
-    # === Helper Methods ===
+    def _get_many2one_fields(self) -> set[str]:
+        """Get the set of many2one field names for the configured model."""
+        all_fields = self.client.get_model_fields(self.config.model)
+        many2one = {name for name, meta in all_fields.items() if meta.get("type") == "many2one"}
+        if self.config.fields:
+            many2one = many2one & set(self.config.fields)
+        logging.info(f"Identified {len(many2one)} many2one fields for consistent column handling")
+        return many2one
 
 
 if __name__ == "__main__":

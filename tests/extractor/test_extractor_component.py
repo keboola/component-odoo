@@ -38,6 +38,27 @@ class TestSplitRecords:
 
         assert result.main_records[0]["email"] is None
 
+    def test_false_many2one_produces_id_and_name_columns(self):
+        records: list[dict[str, Any]] = [{"id": 1, "picking_id": False}]
+        result = Component._split_records(records, "stock.move", "stock_move.csv", many2one_fields={"picking_id"})
+
+        assert "picking_id" not in result.main_records[0]
+        assert result.main_records[0]["picking_id_id"] is None
+        assert result.main_records[0]["picking_id_name"] is None
+
+    def test_many2one_columns_consistent_across_records(self):
+        records: list[dict[str, Any]] = [
+            {"id": 1, "name": "Move 1", "picking_id": False},
+            {"id": 2, "name": "Move 2", "picking_id": [42, "PICK/001"]},
+        ]
+        result = Component._split_records(records, "stock.move", "stock_move.csv", many2one_fields={"picking_id"})
+
+        assert set(result.main_records[0].keys()) == set(result.main_records[1].keys())
+        assert result.main_records[0]["picking_id_id"] is None
+        assert result.main_records[0]["picking_id_name"] is None
+        assert result.main_records[1]["picking_id_id"] == 42
+        assert result.main_records[1]["picking_id_name"] == "PICK/001"
+
     def test_empty_relationship_list_skipped(self):
         records: list[dict[str, Any]] = [{"id": 1, "tag_ids": []}]
         result = Component._split_records(records, "res.partner", "res_partner.csv")
@@ -59,6 +80,36 @@ class TestSplitRecords:
         child = result.bridge_tables["res_partner__child_ids.csv"]
         assert child.primary_key == ["partner_id", "child_id"]
         assert len(child.records) == 3
+
+
+class TestManyToOneConsistentCsvOutput:
+    def test_paged_many2one_produces_consistent_columns(self, tmp_path):
+        """Reproduce the bug: many2one field False in page 1, populated in page 2."""
+        path = tmp_path / "out.csv"
+
+        page1 = Component._split_records(
+            [{"id": 1, "name": "A", "picking_id": False}],
+            "stock.move",
+            "stock_move.csv",
+            many2one_fields={"picking_id"},
+        )
+        Component._write_csv(path, page1.main_records, mode="w")
+
+        page2 = Component._split_records(
+            [{"id": 2, "name": "B", "picking_id": [42, "PICK/001"]}],
+            "stock.move",
+            "stock_move.csv",
+            many2one_fields={"picking_id"},
+        )
+        Component._write_csv(path, page2.main_records, mode="a")
+
+        import csv
+
+        with open(path, encoding="utf-8") as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            for row in reader:
+                assert len(row) == len(header), f"Row has {len(row)} columns but header has {len(header)}"
 
 
 class TestMetadataGeneration:
