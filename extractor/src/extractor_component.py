@@ -446,6 +446,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
 
         # Build metadata rows
         metadata_rows: list[MetadataRow] = []
+        documented_many2one: set[str] = set()
 
         # Process each field
         for field_name in fields_to_document:
@@ -454,15 +455,26 @@ class Component(OdooSyncActionsMixin, ComponentBase):
                 # Check if this is a flattened many2one field
                 original_field = field_name.rsplit("_", 1)[0]
                 if original_field in all_fields and all_fields[original_field].get("type") == "many2one":
-                    # This is a flattened field, skip it here
+                    # Track and generate metadata for this many2one if not already done
+                    if original_field not in documented_many2one:
+                        documented_many2one.add(original_field)
+                        field_meta = all_fields[original_field]
+                        relation = field_meta.get("relation", "")
+                        base_table = table_name if table_name.endswith(".csv") else f"{table_name}.csv"
+                        metadata_rows.append(
+                            MetadataRow(original_field, "many2one", relation, base_table, f"{original_field}_id", "")
+                        )
+                        metadata_rows.append(MetadataRow(f"{original_field}_id", "integer", "", base_table, "", ""))
+                        metadata_rows.append(MetadataRow(f"{original_field}_name", "char", "", base_table, "", ""))
                     continue
 
             field_meta = all_fields.get(field_name, {})
             field_type = field_meta.get("type", "")
             relation = field_meta.get("relation", "")
 
-            if field_type == "many2one":
+            if field_type == "many2one" and field_name not in documented_many2one:
                 # Many2one: Create 3 rows (original + _id + _name flattened columns)
+                documented_many2one.add(field_name)
                 base_table = table_name if table_name.endswith(".csv") else f"{table_name}.csv"
                 metadata_rows.append(
                     MetadataRow(
