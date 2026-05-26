@@ -145,8 +145,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         """Extract data with cursor-based pagination."""
         logging.info(f"Extracting {self.config.model} -> {self.config.table_name}")
 
-        # Fetch field type info to ensure consistent column handling for many2one fields
-        field_types = self._get_many2one_fields()
+        many2one_fields = self._get_many2one_fields()
 
         # Check if we're switching from incremental to full load
         state_last_id = self.state.get("last_id", 0)
@@ -188,7 +187,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
                 logging.info("No more records to fetch")
                 break
 
-            result = self._split_records(records, self.config.model, self.config.table_name, field_types)
+            result = self._split_records(records, self.config.model, self.config.table_name, many2one_fields)
 
             # Write main table (append after first page)
             mode = "a" if page_num > 1 else "w"

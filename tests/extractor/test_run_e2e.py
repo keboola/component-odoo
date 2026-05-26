@@ -110,6 +110,29 @@ class TestRelationalFields:
         assert records[0]["country_id_name"] == "United States"
         assert records[1]["country_id_id"] == "75"
 
+    def test_many2one_false_on_first_page_populated_on_second_produces_consistent_csv(self, run_component, mock_client):
+        """Regression: False many2one on page 1 must not produce a bare column that mismatches page 2."""
+        mock_client.get_model_fields.return_value = {
+            "id": {"type": "integer", "string": "ID"},
+            "name": {"type": "char", "string": "Name"},
+            "picking_id": {"type": "many2one", "string": "Picking", "relation": "stock.picking"},
+        }
+        mock_client.search_read.side_effect = [
+            [{"id": 1, "name": "Move A", "picking_id": False}],
+            [{"id": 2, "name": "Move B", "picking_id": [42, "PICK/001"]}],
+            [],
+        ]
+
+        data_dir = run_component({**BASE_PARAMS, "model": "stock.move", "page_size": 1})
+
+        records = read_csv(data_dir, "stock_move")
+        assert len(records) == 2
+        assert set(records[0].keys()) == set(records[1].keys()), "Column sets differ between pages"
+        assert records[0]["picking_id_id"] == ""
+        assert records[0]["picking_id_name"] == ""
+        assert records[1]["picking_id_id"] == "42"
+        assert records[1]["picking_id_name"] == "PICK/001"
+
     def test_many2many_split_to_bridge_table(self, run_component, mock_client):
         mock_client.get_model_fields.return_value = {
             "id": {"type": "integer", "string": "ID"},
