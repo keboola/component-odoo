@@ -2,7 +2,7 @@
 Odoo Extractor Component
 
 Extracts data from Odoo ERP via XML-RPC API.
-Uses modern Python 3.9+ type hints and clean orchestrator pattern.
+Handles many2one field flattening with consistent column generation.
 """
 
 import csv
