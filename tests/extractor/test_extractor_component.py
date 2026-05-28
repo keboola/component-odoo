@@ -138,6 +138,7 @@ class TestMetadataGeneration:
         comp = Component()
         comp.client = mock_client
         comp.state = {}
+        comp._fields_cache = {}
         comp.create_out_table_definition = make_table
         comp.write_manifest = MagicMock()
         mocker.patch.object(

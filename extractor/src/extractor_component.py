@@ -72,6 +72,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         self.state: dict[str, Any] = {}
         self.config = Configuration(**self.configuration.parameters)
         self.client = initialize_client(self.config)
+        self._fields_cache: dict[str, dict[str, Any]] = {}
 
     def run(self) -> None:
         """Main extraction logic."""
@@ -432,10 +433,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         relationship_tables: dict[str, list[dict[str, Any]]],
     ) -> None:
         """Write metadata CSV file describing field types and relationships."""
-        if not self.client:
-            raise UserException("Odoo client not initialized")
-
-        all_fields = self.client.get_model_fields(model_name)
+        all_fields = self._model_fields(model_name)
 
         if main_table_fields:
             fields_to_document = main_table_fields
@@ -537,9 +535,17 @@ class Component(OdooSyncActionsMixin, ComponentBase):
 
         logging.info(f"Wrote metadata file: metadata__{table_name}.csv ({len(metadata_rows)} fields)")
 
+    def _model_fields(self, model_name: str) -> dict[str, Any]:
+        """Fetch and cache field metadata for a model (avoids duplicate API calls)."""
+        if not self.client:
+            raise UserException("Odoo client not initialized")
+        if model_name not in self._fields_cache:
+            self._fields_cache[model_name] = self.client.get_model_fields(model_name)
+        return self._fields_cache[model_name]
+
     def _get_many2one_fields(self) -> set[str]:
         """Get the set of many2one field names for the configured model."""
-        all_fields = self.client.get_model_fields(self.config.model)
+        all_fields = self._model_fields(self.config.model)
         many2one = {name for name, meta in all_fields.items() if meta.get("type") == "many2one"}
         if self.config.fields:
             many2one = many2one & set(self.config.fields)
