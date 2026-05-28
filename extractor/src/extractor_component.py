@@ -2,7 +2,7 @@
 Odoo Extractor Component
 
 Extracts data from Odoo ERP via XML-RPC API.
-Uses modern Python 3.9+ type hints and clean orchestrator pattern.
+Handles many2one field flattening with consistent column generation.
 """
 
 import csv
@@ -72,6 +72,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         self.state: dict[str, Any] = {}
         self.config = Configuration(**self.configuration.parameters)
         self.client = initialize_client(self.config)
+        self._fields_cache: dict[str, dict[str, Any]] = {}
 
     def run(self) -> None:
         """Main extraction logic."""
@@ -145,6 +146,8 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         """Extract data with cursor-based pagination."""
         logging.info(f"Extracting {self.config.model} -> {self.config.table_name}")
 
+        many2one_fields = self._get_many2one_fields()
+
         # Check if we're switching from incremental to full load
         state_last_id = self.state.get("last_id", 0)
         if not self.config.incremental and state_last_id > 0:
@@ -185,7 +188,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
                 logging.info("No more records to fetch")
                 break
 
-            result = self._split_records(records, self.config.model, self.config.table_name)
+            result = self._split_records(records, self.config.model, self.config.table_name, many2one_fields)
 
             # Write main table (append after first page)
             mode = "a" if page_num > 1 else "w"
@@ -276,6 +279,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         records: list[dict[str, Any]],
         model_name: str,
         table_name: str,
+        many2one_fields: set[str] | None = None,
     ) -> SplitTablesResult:
         """
         Split records into main table and bridge tables.
@@ -289,6 +293,8 @@ class Component(OdooSyncActionsMixin, ComponentBase):
             records: Raw Odoo records
             model_name: Odoo model name (e.g., 'res.partner')
             table_name: Base table name (e.g., 'res_partner.csv')
+            many2one_fields: Set of field names known to be many2one type.
+                Used to ensure consistent _id/_name columns even when the value is False.
 
         Returns:
             SplitTablesResult containing:
@@ -320,6 +326,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
                     }
                 )
         """
+        many2one_fields = many2one_fields or set()
         main_records = []
         relationship_metadata: dict[str, BridgeTableMetadata] = {}
 
@@ -371,7 +378,11 @@ class Component(OdooSyncActionsMixin, ComponentBase):
 
                 elif value is False:
                     # Odoo uses False for null values
-                    main_record[key] = None
+                    if key in many2one_fields:
+                        main_record[f"{key}_id"] = None
+                        main_record[f"{key}_name"] = None
+                    else:
+                        main_record[key] = None
 
                 else:
                     # Regular scalar field
@@ -422,10 +433,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         relationship_tables: dict[str, list[dict[str, Any]]],
     ) -> None:
         """Write metadata CSV file describing field types and relationships."""
-        if not self.client:
-            raise UserException("Odoo client not initialized")
-
-        all_fields = self.client.get_model_fields(model_name)
+        all_fields = self._model_fields(model_name)
 
         if main_table_fields:
             fields_to_document = main_table_fields
@@ -436,6 +444,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
 
         # Build metadata rows
         metadata_rows: list[MetadataRow] = []
+        documented_many2one: set[str] = set()
 
         # Process each field
         for field_name in fields_to_document:
@@ -444,15 +453,26 @@ class Component(OdooSyncActionsMixin, ComponentBase):
                 # Check if this is a flattened many2one field
                 original_field = field_name.rsplit("_", 1)[0]
                 if original_field in all_fields and all_fields[original_field].get("type") == "many2one":
-                    # This is a flattened field, skip it here
+                    # Track and generate metadata for this many2one if not already done
+                    if original_field not in documented_many2one:
+                        documented_many2one.add(original_field)
+                        field_meta = all_fields[original_field]
+                        relation = field_meta.get("relation", "")
+                        base_table = table_name if table_name.endswith(".csv") else f"{table_name}.csv"
+                        metadata_rows.append(
+                            MetadataRow(original_field, "many2one", relation, base_table, f"{original_field}_id", "")
+                        )
+                        metadata_rows.append(MetadataRow(f"{original_field}_id", "integer", "", base_table, "", ""))
+                        metadata_rows.append(MetadataRow(f"{original_field}_name", "char", "", base_table, "", ""))
                     continue
 
             field_meta = all_fields.get(field_name, {})
             field_type = field_meta.get("type", "")
             relation = field_meta.get("relation", "")
 
-            if field_type == "many2one":
+            if field_type == "many2one" and field_name not in documented_many2one:
                 # Many2one: Create 3 rows (original + _id + _name flattened columns)
+                documented_many2one.add(field_name)
                 base_table = table_name if table_name.endswith(".csv") else f"{table_name}.csv"
                 metadata_rows.append(
                     MetadataRow(
@@ -515,7 +535,22 @@ class Component(OdooSyncActionsMixin, ComponentBase):
 
         logging.info(f"Wrote metadata file: metadata__{table_name}.csv ({len(metadata_rows)} fields)")
 
-    # === Helper Methods ===
+    def _model_fields(self, model_name: str) -> dict[str, Any]:
+        """Fetch and cache field metadata for a model (avoids duplicate API calls)."""
+        if not self.client:
+            raise UserException("Odoo client not initialized")
+        if model_name not in self._fields_cache:
+            self._fields_cache[model_name] = self.client.get_model_fields(model_name)
+        return self._fields_cache[model_name]
+
+    def _get_many2one_fields(self) -> set[str]:
+        """Get the set of many2one field names for the configured model."""
+        all_fields = self._model_fields(self.config.model)
+        many2one = {name for name, meta in all_fields.items() if meta.get("type") == "many2one"}
+        if self.config.fields:
+            many2one = many2one & set(self.config.fields)
+        logging.info(f"Identified {len(many2one)} many2one fields for consistent column handling")
+        return many2one
 
 
 if __name__ == "__main__":
