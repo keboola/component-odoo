@@ -52,7 +52,7 @@
       "type": "boolean",
       "format": "checkbox",
       "title": "Incremental Loading",
-      "description": "Extract only new records since last run (based on ID field)",
+      "description": "Extract only records created or modified since the last run (based on the write_date field)",
       "default": false,
       "propertyOrder": 40
     },

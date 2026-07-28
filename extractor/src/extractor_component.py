@@ -18,6 +18,8 @@ from keboola.component.exceptions import UserException
 from shared.connection import PROTOCOL_XMLRPC
 from shared.odoo_base import OdooSyncActionsMixin, initialize_client
 
+INCREMENTAL_FIELD = "write_date"
+
 
 @dataclass
 class MetadataRow:
@@ -143,24 +145,21 @@ class Component(OdooSyncActionsMixin, ComponentBase):
             self.client.test_connection()
 
     def _extract_with_paging(self) -> None:
-        """Extract data with cursor-based pagination."""
+        """Extract data, paging by id and filtering by write_date in incremental mode."""
         logging.info(f"Extracting {self.config.model} -> {self.config.table_name}")
 
         many2one_fields = self._get_many2one_fields()
+        tracks_changes = INCREMENTAL_FIELD in self._model_fields(self.config.model)
+        last_write_date = self._incremental_cursor(tracks_changes)
 
-        # Check if we're switching from incremental to full load
-        state_last_id = self.state.get("last_id", 0)
-        if not self.config.incremental and state_last_id > 0:
-            logging.warning(f"Full load mode with existing state (last_id={state_last_id}). Starting fresh extraction.")
+        # Incremental runs fetch everything modified since the last run, regardless of id
+        base_domain = self.config.get_domain()
+        if last_write_date:
+            base_domain.append((INCREMENTAL_FIELD, ">=", last_write_date))
+            logging.info(f"Incremental mode: fetching records modified since {last_write_date}")
 
-        # Initialize cursor from state (incremental) or 0 (full load)
-        cursor_id = state_last_id if self.config.incremental else 0
-
-        # Build initial domain with cursor
-        domain = self.config.get_domain()
-        if cursor_id > 0:
-            domain.append(("id", ">", cursor_id))
-            logging.info(f"Incremental mode: resuming from ID {cursor_id}")
+        fields_to_fetch = self._fields_to_fetch(tracks_changes)
+        drop_write_date = bool(self.config.fields) and INCREMENTAL_FIELD not in self.config.fields
 
         table = self.create_out_table_definition(
             name=self.config.table_name,
@@ -170,16 +169,19 @@ class Component(OdooSyncActionsMixin, ComponentBase):
 
         page_num = 1
         total_records = 0
+        cursor_id = 0
+        max_write_date = last_write_date
         all_relationship_metadata: dict[str, BridgeTableMetadata] = {}
 
-        # Cursor-based paging loop
+        # Cursor-based paging loop (the id cursor only paginates within a single run)
         while True:
             logging.info(f"Fetching page {page_num} (cursor: id > {cursor_id}, limit: {self.config.page_size})")
 
+            domain = [*base_domain, ("id", ">", cursor_id)] if cursor_id > 0 else base_domain
             records = self.client.search_read(
                 model=self.config.model,
                 domain=domain,
-                fields=self.config.fields,
+                fields=fields_to_fetch,
                 limit=self.config.page_size,
                 order="id asc",
             )
@@ -187,6 +189,11 @@ class Component(OdooSyncActionsMixin, ComponentBase):
             if not records:
                 logging.info("No more records to fetch")
                 break
+
+            max_write_date = self._max_write_date(records, max_write_date)
+            if drop_write_date:
+                for record in records:
+                    record.pop(INCREMENTAL_FIELD, None)
 
             result = self._split_records(records, self.config.model, self.config.table_name, many2one_fields)
 
@@ -205,12 +212,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
                 all_relationship_metadata[rel_table_name].records.extend(rel_data.records)
 
             # Update cursor for next page
-            max_id = max(r.get("id", 0) for r in records if isinstance(r.get("id"), int))
-            cursor_id = max_id
-
-            # Update domain with new cursor
-            domain = [d for d in domain if d[0] != "id"]
-            domain.append(("id", ">", cursor_id))
+            cursor_id = max(r.get("id", 0) for r in records if isinstance(r.get("id"), int))
 
             total_records += len(records)
             page_num += 1
@@ -264,7 +266,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         self.state = {
             "model": self.config.model,
             "domain": self.config.domain or "",
-            "last_id": cursor_id if self.config.incremental else 0,
+            "last_write_date": max_write_date if self.config.incremental else "",
             "last_run": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "records_fetched": total_records,
@@ -542,6 +544,40 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         if model_name not in self._fields_cache:
             self._fields_cache[model_name] = self.client.get_model_fields(model_name)
         return self._fields_cache[model_name]
+
+    def _incremental_cursor(self, tracks_changes: bool) -> str:
+        """Return the write_date to resume from, or an empty string for a full sweep."""
+        if not self.config.incremental:
+            return ""
+
+        if not tracks_changes:
+            logging.warning(
+                f"Model {self.config.model} has no '{INCREMENTAL_FIELD}' field - "
+                "every incremental run fetches all matching records."
+            )
+            return ""
+
+        cursor = str(self.state.get("last_write_date", ""))
+        if not cursor and self.state.get("last_id"):
+            logging.info(
+                "State was created by the id-based cursor - running one full sweep to pick up "
+                "records modified since they were first extracted."
+            )
+        return cursor
+
+    def _fields_to_fetch(self, tracks_changes: bool) -> list[str] | None:
+        """Add write_date to the requested fields so the cursor can be advanced."""
+        if not self.config.fields or not tracks_changes:
+            return self.config.fields
+        if INCREMENTAL_FIELD in self.config.fields:
+            return self.config.fields
+        return [*self.config.fields, INCREMENTAL_FIELD]
+
+    @staticmethod
+    def _max_write_date(records: list[dict[str, Any]], current: str) -> str:
+        """Highest write_date seen so far - the cursor for the next run."""
+        write_dates = [str(r[INCREMENTAL_FIELD]) for r in records if r.get(INCREMENTAL_FIELD)]
+        return max([current, *write_dates]) if write_dates else current
 
     def _get_many2one_fields(self) -> set[str]:
         """Get the set of many2one field names for the configured model."""

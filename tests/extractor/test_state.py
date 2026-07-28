@@ -16,7 +16,7 @@ def mock_client():
     client = MagicMock()
     client.test_connection.return_value = None
     client.get_version.return_value = "16.0"
-    client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
+    client.get_model_fields.return_value = MODEL_FIELDS
     client.search_read.return_value = []
     return client
 
@@ -34,6 +34,11 @@ def run(kbc_datadir, mocker, mock_client):
     return _run
 
 
+MODEL_FIELDS = {
+    "id": {"type": "integer", "string": "ID"},
+    "write_date": {"type": "datetime", "string": "Last Updated on"},
+}
+
 BASE_PARAMS = {
     "odoo_url": "https://demo.odoo.com",
     "database": "demo",
@@ -45,7 +50,7 @@ BASE_PARAMS = {
 
 class TestValidateState:
     def test_model_change_raises(self, kbc_datadir, mocker, mock_client):
-        write_state(kbc_datadir, {"model": "sale.order", "domain": "", "last_id": 10})
+        write_state(kbc_datadir, {"model": "sale.order", "domain": "", "last_write_date": "2026-01-01 00:00:00"})
         write_config(kbc_datadir, {**BASE_PARAMS, "model": "res.partner"})
         mocker.patch("extractor_component.initialize_client", return_value=mock_client)
 
@@ -58,7 +63,7 @@ class TestValidateState:
             {
                 "model": "res.partner",
                 "domain": '[["is_company", "=", true]]',
-                "last_id": 10,
+                "last_write_date": "2026-01-01 00:00:00",
             },
         )
         write_config(
@@ -82,73 +87,155 @@ class TestValidateState:
             {
                 "model": "res.partner",
                 "domain": '[["is_company", "=", true]]',
-                "last_id": 5,
+                "last_write_date": "2026-01-01 00:00:00",
             },
         )
         run({**BASE_PARAMS, "domain": '[["is_company", "=", true]]', "incremental": True})
 
 
+def capture_domains(mock_client, mocker, pages=None):
+    """Record the domain of every search_read call; return the recorded domains."""
+    domains_seen: list[list] = []
+    pages = pages or []
+
+    def capture(*args, **kwargs):
+        domains_seen.append(kwargs.get("domain", []))
+        return pages[len(domains_seen) - 1] if len(domains_seen) <= len(pages) else []
+
+    mock_client.search_read = capture
+    mocker.patch("extractor_component.initialize_client", return_value=mock_client)
+    return domains_seen
+
+
 class TestIncrementalCursor:
-    def test_cursor_applied_to_domain_on_first_call(self, kbc_datadir, mocker, mock_client):
-        write_state(kbc_datadir, {"model": "res.partner", "domain": "", "last_id": 5})
+    def test_write_date_cursor_applied_to_domain(self, kbc_datadir, mocker, mock_client):
+        write_state(
+            kbc_datadir,
+            {"model": "res.partner", "domain": "", "last_write_date": "2026-07-23 08:33:48"},
+        )
         write_config(kbc_datadir, {**BASE_PARAMS, "incremental": True})
 
-        domains_seen = []
-
-        def capture(*args, **kwargs):
-            domains_seen.append(kwargs.get("domain", []))
-            return []
-
-        mock_client.search_read = capture
-        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
+        domains_seen = capture_domains(mock_client, mocker)
         Component().run()
 
-        id_filter = [d for d in domains_seen[0] if isinstance(d, tuple) and d[0] == "id"]
-        assert id_filter == [("id", ">", 5)]
+        assert domains_seen[0] == [("write_date", ">=", "2026-07-23 08:33:48")]
 
-    def test_full_load_ignores_cursor_from_state(self, kbc_datadir, mocker, mock_client):
-        write_state(kbc_datadir, {"model": "res.partner", "domain": "", "last_id": 100})
-        write_config(kbc_datadir, {**BASE_PARAMS, "incremental": False})
+    def test_no_id_cursor_carried_over_between_runs(self, kbc_datadir, mocker, mock_client):
+        """Modified records keep their original id, so the id cursor must reset each run."""
+        write_state(
+            kbc_datadir,
+            {"model": "res.partner", "domain": "", "last_write_date": "2026-07-23 08:33:48"},
+        )
+        write_config(kbc_datadir, {**BASE_PARAMS, "incremental": True})
 
-        domains_seen = []
-
-        def capture(*args, **kwargs):
-            domains_seen.append(kwargs.get("domain", []))
-            return [{"id": 1}] if len(domains_seen) == 1 else []
-
-        mock_client.search_read = capture
-        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
+        domains_seen = capture_domains(mock_client, mocker)
         Component().run()
 
         id_filters = [d for d in domains_seen[0] if isinstance(d, tuple) and d[0] == "id"]
         assert not id_filters
 
-
-class TestStatePersistence:
-    def test_last_id_saved_in_incremental_mode(self, kbc_datadir, mocker):
+    def test_legacy_id_state_triggers_full_sweep(self, kbc_datadir, mocker, mock_client):
+        write_state(kbc_datadir, {"model": "res.partner", "domain": "", "last_id": 100})
         write_config(kbc_datadir, {**BASE_PARAMS, "incremental": True})
 
-        client = MagicMock()
-        client.test_connection.return_value = None
-        client.get_version.return_value = "16.0"
-        client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
-        client.search_read.return_value = [{"id": 50}]
-
-        mocker.patch("extractor_component.initialize_client", return_value=client)
+        domains_seen = capture_domains(mock_client, mocker)
         Component().run()
 
-        assert read_state(kbc_datadir)["last_id"] == 50
+        assert domains_seen[0] == []
 
-    def test_last_id_is_zero_in_full_load(self, kbc_datadir, mocker):
+    def test_full_load_ignores_cursor_from_state(self, kbc_datadir, mocker, mock_client):
+        write_state(
+            kbc_datadir,
+            {"model": "res.partner", "domain": "", "last_write_date": "2026-07-23 08:33:48"},
+        )
         write_config(kbc_datadir, {**BASE_PARAMS, "incremental": False})
 
-        client = MagicMock()
-        client.test_connection.return_value = None
-        client.get_version.return_value = "16.0"
-        client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
-        client.search_read.return_value = [{"id": 999}]
-
-        mocker.patch("extractor_component.initialize_client", return_value=client)
+        domains_seen = capture_domains(mock_client, mocker, pages=[[{"id": 1}]])
         Component().run()
 
-        assert read_state(kbc_datadir)["last_id"] == 0
+        assert domains_seen[0] == []
+
+    def test_user_domain_preserved_across_pages(self, kbc_datadir, mocker, mock_client):
+        write_config(
+            kbc_datadir,
+            {**BASE_PARAMS, "domain": '[["id", ">", 10]]', "page_size": 2},
+        )
+
+        pages = [[{"id": 11}, {"id": 12}], [{"id": 13}]]
+        domains_seen = capture_domains(mock_client, mocker, pages=pages)
+        Component().run()
+
+        assert domains_seen[0] == [["id", ">", 10]]
+        assert domains_seen[1] == [["id", ">", 10], ("id", ">", 12)]
+
+    def test_model_without_write_date_falls_back_to_full_sweep(self, kbc_datadir, mocker, mock_client):
+        mock_client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
+        write_state(
+            kbc_datadir,
+            {"model": "res.partner", "domain": "", "last_write_date": "2026-07-23 08:33:48"},
+        )
+        write_config(kbc_datadir, {**BASE_PARAMS, "incremental": True})
+
+        domains_seen = capture_domains(mock_client, mocker)
+        Component().run()
+
+        assert domains_seen[0] == []
+
+
+class TestWriteDateField:
+    def test_write_date_added_to_selected_fields_and_stripped_from_output(self, kbc_datadir, mocker, mock_client):
+        write_config(
+            kbc_datadir,
+            {**BASE_PARAMS, "incremental": True, "fields": ["id", "name"]},
+        )
+
+        fields_seen = []
+
+        def capture(*args, **kwargs):
+            fields_seen.append(kwargs.get("fields"))
+            if len(fields_seen) > 1:
+                return []
+            return [{"id": 1, "name": "Azure", "write_date": "2026-07-23 08:33:48"}]
+
+        mock_client.search_read = capture
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
+        Component().run()
+
+        assert fields_seen[0] == ["id", "name", "write_date"]
+        header = (kbc_datadir / "out" / "tables" / "res_partner.csv").read_text().splitlines()[0]
+        assert "write_date" not in header
+
+
+class TestStatePersistence:
+    def test_highest_write_date_saved_in_incremental_mode(self, kbc_datadir, mocker, mock_client):
+        write_config(kbc_datadir, {**BASE_PARAMS, "incremental": True})
+        mock_client.search_read.return_value = [
+            {"id": 50, "write_date": "2026-07-23 08:33:48"},
+            {"id": 51, "write_date": "2026-07-21 10:00:00"},
+        ]
+
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
+        Component().run()
+
+        assert read_state(kbc_datadir)["last_write_date"] == "2026-07-23 08:33:48"
+
+    def test_cursor_kept_when_nothing_changed(self, kbc_datadir, mocker, mock_client):
+        write_state(
+            kbc_datadir,
+            {"model": "res.partner", "domain": "", "last_write_date": "2026-07-23 08:33:48"},
+        )
+        write_config(kbc_datadir, {**BASE_PARAMS, "incremental": True})
+
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
+        Component().run()
+
+        assert read_state(kbc_datadir)["last_write_date"] == "2026-07-23 08:33:48"
+
+    def test_cursor_is_empty_in_full_load(self, kbc_datadir, mocker, mock_client):
+        write_config(kbc_datadir, {**BASE_PARAMS, "incremental": False})
+        mock_client.search_read.return_value = [{"id": 999, "write_date": "2026-07-23 08:33:48"}]
+
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
+        Component().run()
+
+        assert read_state(kbc_datadir)["last_write_date"] == ""

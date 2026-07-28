@@ -88,7 +88,7 @@ class TestFullExtraction:
 
         state = read_state(data_dir)
         assert state["model"] == "res.partner"
-        assert state["last_id"] == 0  # not incremental
+        assert state["last_write_date"] == ""  # not incremental
         assert state["last_run"]["records_fetched"] == 1
 
 
@@ -160,43 +160,54 @@ class TestRelationalFields:
 
 
 class TestIncrementalExtraction:
-    def test_cursor_from_state_applied_to_domain(self, kbc_datadir, mocker, mock_client):
+    def test_modified_record_re_extracted(self, kbc_datadir, mocker, mock_client):
+        """Regression: a record modified after creation must be re-fetched despite its low id."""
         from ..conftest import write_state
 
         write_state(
             kbc_datadir,
             {
-                "model": "res.partner",
+                "model": "stock.picking",
                 "domain": "",
-                "last_id": 5,
-                "last_run": {"timestamp": "2024-01-01T00:00:00+00:00", "records_fetched": 5},
+                "last_write_date": "2026-07-20 00:00:00",
+                "last_run": {"timestamp": "2026-07-20T00:00:00+00:00", "records_fetched": 5},
             },
         )
-        write_config(kbc_datadir, {**BASE_PARAMS, "incremental": True})
+        write_config(kbc_datadir, {**BASE_PARAMS, "model": "stock.picking", "incremental": True})
 
         domains_seen = []
 
         def capture_search_read(*args, **kwargs):
             domains_seen.append(list(kwargs.get("domain", [])))
-            return [{"id": 6, "name": "New"}, {"id": 7, "name": "Newer"}] if len(domains_seen) == 1 else []
+            if len(domains_seen) > 1:
+                return []
+            return [{"id": 3, "name": "OLC-P/IN/03958", "state": "done", "write_date": "2026-07-23 08:33:48"}]
 
         mock_client.search_read = capture_search_read
-        mock_client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
+        mock_client.get_model_fields.return_value = {
+            "id": {"type": "integer", "string": "ID"},
+            "state": {"type": "selection", "string": "Status"},
+            "write_date": {"type": "datetime", "string": "Last Updated on"},
+        }
         mocker.patch("extractor_component.initialize_client", return_value=mock_client)
 
         Component().run()
 
-        id_filter = [d for d in domains_seen[0] if isinstance(d, tuple) and d[0] == "id"]
-        assert len(id_filter) == 1
-        assert id_filter[0] == ("id", ">", 5)
+        assert domains_seen[0] == [("write_date", ">=", "2026-07-20 00:00:00")]
+        records = read_csv(kbc_datadir, "stock_picking")
+        assert records[0]["state"] == "done"
+        assert read_state(kbc_datadir)["last_write_date"] == "2026-07-23 08:33:48"
 
-    def test_last_id_persisted_in_state(self, run_component, mock_client):
-        mock_client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
-        mock_client.search_read.return_value = [{"id": 50}]
+    def test_write_date_persisted_in_state(self, run_component, mock_client):
+        mock_client.get_model_fields.return_value = {
+            "id": {"type": "integer", "string": "ID"},
+            "write_date": {"type": "datetime", "string": "Last Updated on"},
+        }
+        mock_client.search_read.return_value = [{"id": 50, "write_date": "2026-07-23 08:33:48"}]
 
         data_dir = run_component({**BASE_PARAMS, "incremental": True})
 
-        assert read_state(data_dir)["last_id"] == 50
+        assert read_state(data_dir)["last_write_date"] == "2026-07-23 08:33:48"
 
     def test_domain_filter_passed_to_search_read(self, kbc_datadir, mocker, mock_client):
         write_config(kbc_datadir, {**BASE_PARAMS, "domain": '[["is_company", "=", true]]'})

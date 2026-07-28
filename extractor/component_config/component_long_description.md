@@ -12,7 +12,7 @@ Extract data from Odoo ERP systems via XML-RPC or JSON-2 API with intelligent mo
 
 ### Powerful Data Extraction
 - **Multiple Endpoints** - Configure multiple models in a single extraction
-- **Incremental Loading** - ID-based state tracking for efficient updates
+- **Incremental Loading** - `write_date`-based state tracking for efficient updates
 - **Auto-Flattening** - Handles Odoo many2one and many2many relationships
 - **Flexible Filtering** - Use Odoo domain filters for targeted extraction
 
