@@ -353,7 +353,8 @@ The cursor is inclusive (`>=`), so the boundary record is re-fetched on the next
 upserted - this guarantees no change is lost on the second boundary.
 
 Models without a `write_date` field (Odoo does not add audit columns to every model) fall back
-to fetching all matching records on every run; a warning is logged.
+to id-based incremental (`id > last_id`): new records are still fetched cheaply, but records
+modified after creation are not re-captured for those models. A warning is logged.
 
 If `fields` are explicitly selected, `write_date` is added to the API request automatically and
 removed from the output again, so the output schema is unchanged.
@@ -378,13 +379,15 @@ Each configuration row maintains its own state file:
 ```
 
 **State Fields:**
-- `last_write_date` - Highest `write_date` extracted so far (incremental cursor)
+- `last_write_date` - Highest `write_date` extracted so far (incremental cursor for models with a `write_date` field)
+- `last_id` - Highest `id` extracted so far, used only for models **without** a `write_date` field
 - `model` / `domain` - Configuration snapshot for validation (detects model/domain changes)
 - `last_run` - Diagnostics for the previous extraction
 
-State written by older versions contains `last_id` instead. The first run after the upgrade
-ignores it and performs one full sweep, which backfills records that were modified while the
-id-based cursor was in use.
+State written by older versions contains only `last_id`. For a model that has `write_date`, the
+first run after the upgrade ignores it and performs one full sweep, which backfills records that
+were modified while the id-based cursor was in use. Models without `write_date` keep resuming
+from `last_id` as before.
 
 ### Cursor-Based Pagination
 

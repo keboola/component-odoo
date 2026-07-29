@@ -168,12 +168,20 @@ class TestIncrementalCursor:
         assert domains_seen[0] == [["id", ">", 10]]
         assert domains_seen[1] == [["id", ">", 10], ("id", ">", 12)]
 
-    def test_model_without_write_date_falls_back_to_full_sweep(self, kbc_datadir, mocker, mock_client):
+    def test_model_without_write_date_resumes_by_id(self, kbc_datadir, mocker, mock_client):
+        """Models lacking write_date keep classic id-based incremental instead of re-sweeping everything."""
         mock_client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
-        write_state(
-            kbc_datadir,
-            {"model": "res.partner", "domain": "", "last_write_date": "2026-07-23 08:33:48"},
-        )
+        write_state(kbc_datadir, {"model": "res.partner", "domain": "", "last_id": 100})
+        write_config(kbc_datadir, {**BASE_PARAMS, "incremental": True})
+
+        domains_seen = capture_domains(mock_client, mocker)
+        Component().run()
+
+        assert domains_seen[0] == [("id", ">", 100)]
+
+    def test_model_without_write_date_first_run_has_no_cursor(self, kbc_datadir, mocker, mock_client):
+        """First incremental run of a write_date-less model has no id cursor yet (initial full load)."""
+        mock_client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
         write_config(kbc_datadir, {**BASE_PARAMS, "incremental": True})
 
         domains_seen = capture_domains(mock_client, mocker)
@@ -239,3 +247,16 @@ class TestStatePersistence:
         Component().run()
 
         assert read_state(kbc_datadir)["last_write_date"] == ""
+
+    def test_id_cursor_saved_for_model_without_write_date(self, kbc_datadir, mocker, mock_client):
+        """Write_date-less incremental persists the highest id as the resume cursor."""
+        mock_client.get_model_fields.return_value = {"id": {"type": "integer", "string": "ID"}}
+        write_config(kbc_datadir, {**BASE_PARAMS, "incremental": True})
+        mock_client.search_read.return_value = [{"id": 50}, {"id": 51}]
+
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
+        Component().run()
+
+        state = read_state(kbc_datadir)
+        assert state["last_id"] == 51
+        assert state["last_write_date"] == ""

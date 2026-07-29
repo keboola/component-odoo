@@ -150,6 +150,9 @@ class Component(OdooSyncActionsMixin, ComponentBase):
 
         many2one_fields = self._get_many2one_fields()
         tracks_changes = INCREMENTAL_FIELD in self._model_fields(self.config.model)
+        # write_date incremental captures created *and* modified records; models without a
+        # write_date field keep the classic id-based incremental (new records only).
+        use_write_date = self.config.incremental and tracks_changes
         last_write_date = self._incremental_cursor(tracks_changes)
 
         # Incremental runs fetch everything modified since the last run, regardless of id
@@ -159,7 +162,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
             logging.info(f"Incremental mode: fetching records modified since {last_write_date}")
 
         fields_to_fetch = self._fields_to_fetch(tracks_changes)
-        drop_write_date = bool(self.config.fields) and INCREMENTAL_FIELD not in self.config.fields
+        drop_write_date = use_write_date and bool(self.config.fields) and INCREMENTAL_FIELD not in self.config.fields
 
         table = self.create_out_table_definition(
             name=self.config.table_name,
@@ -169,7 +172,9 @@ class Component(OdooSyncActionsMixin, ComponentBase):
 
         page_num = 1
         total_records = 0
-        cursor_id = 0
+        # For write_date models the id cursor only paginates within a run (starts at 0); for
+        # models without write_date it also resumes incremental extraction across runs.
+        cursor_id = self._id_cursor_start(tracks_changes)
         max_write_date = last_write_date
         all_relationship_metadata: dict[str, BridgeTableMetadata] = {}
 
@@ -266,7 +271,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         self.state = {
             "model": self.config.model,
             "domain": self.config.domain or "",
-            "last_write_date": max_write_date if self.config.incremental else "",
+            "last_write_date": max_write_date if use_write_date else "",
             "last_run": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "records_fetched": total_records,
@@ -275,6 +280,9 @@ class Component(OdooSyncActionsMixin, ComponentBase):
                 "page_size": self.config.page_size,
             },
         }
+        # Models without write_date resume by id instead (new records only).
+        if self.config.incremental and not tracks_changes:
+            self.state["last_id"] = cursor_id
 
     @staticmethod
     def _split_records(
@@ -547,14 +555,8 @@ class Component(OdooSyncActionsMixin, ComponentBase):
 
     def _incremental_cursor(self, tracks_changes: bool) -> str:
         """Return the write_date to resume from, or an empty string for a full sweep."""
-        if not self.config.incremental:
-            return ""
-
-        if not tracks_changes:
-            logging.warning(
-                f"Model {self.config.model} has no '{INCREMENTAL_FIELD}' field - "
-                "every incremental run fetches all matching records."
-            )
+        if not self.config.incremental or not tracks_changes:
+            # Full load, or a model without write_date (handled by the id cursor instead).
             return ""
 
         cursor = str(self.state.get("last_write_date", ""))
@@ -564,6 +566,30 @@ class Component(OdooSyncActionsMixin, ComponentBase):
                 "records modified since they were first extracted."
             )
         return cursor
+
+    def _id_cursor_start(self, tracks_changes: bool) -> int:
+        """
+        Starting value for the id paging cursor.
+
+        For models with a write_date field this is always 0 - the id cursor only paginates
+        within a single run. For models WITHOUT a write_date field it doubles as the
+        incremental resume point (classic append-only ``id > last_id`` behaviour), so new
+        records are still fetched cheaply instead of re-sweeping the whole model every run.
+        """
+        if not self.config.incremental or tracks_changes:
+            return 0
+
+        try:
+            last_id = int(self.state.get("last_id", 0) or 0)
+        except (TypeError, ValueError):
+            last_id = 0
+
+        logging.warning(
+            f"Model {self.config.model} has no '{INCREMENTAL_FIELD}' field - using id-based "
+            f"incremental (resuming from id {last_id}); records modified after creation are "
+            "not re-fetched for this model."
+        )
+        return last_id
 
     def _fields_to_fetch(self, tracks_changes: bool) -> list[str] | None:
         """Add write_date to the requested fields so the cursor can be advanced."""
