@@ -52,7 +52,7 @@
       "type": "boolean",
       "format": "checkbox",
       "title": "Incremental Loading",
-      "description": "Extract only records created or modified since the last run (based on the write_date field)",
+      "description": "Extract only records created or modified since the last run (based on the write_date field). Models without a write_date field capture new records only.",
       "default": false,
       "propertyOrder": 40
     },
