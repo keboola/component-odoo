@@ -161,7 +161,9 @@ class Component(OdooSyncActionsMixin, ComponentBase):
             base_domain.append((INCREMENTAL_FIELD, ">=", last_write_date))
             logging.info(f"Incremental mode: fetching records modified since {last_write_date}")
 
-        fields_to_fetch = self._fields_to_fetch(tracks_changes)
+        # Only fetch write_date when it drives the cursor; otherwise it would leak into the
+        # output as an extra column (drop_write_date is gated the same way).
+        fields_to_fetch = self._fields_to_fetch(use_write_date)
         drop_write_date = use_write_date and bool(self.config.fields) and INCREMENTAL_FIELD not in self.config.fields
 
         table = self.create_out_table_definition(
@@ -591,9 +593,9 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         )
         return last_id
 
-    def _fields_to_fetch(self, tracks_changes: bool) -> list[str] | None:
-        """Add write_date to the requested fields so the cursor can be advanced."""
-        if not self.config.fields or not tracks_changes:
+    def _fields_to_fetch(self, use_write_date: bool) -> list[str] | None:
+        """Add write_date to the requested fields so the write_date cursor can be advanced."""
+        if not self.config.fields or not use_write_date:
             return self.config.fields
         if INCREMENTAL_FIELD in self.config.fields:
             return self.config.fields

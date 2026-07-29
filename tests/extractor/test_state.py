@@ -213,6 +213,29 @@ class TestWriteDateField:
         header = (kbc_datadir / "out" / "tables" / "res_partner.csv").read_text().splitlines()[0]
         assert "write_date" not in header
 
+    def test_full_load_with_selected_fields_does_not_fetch_or_leak_write_date(self, kbc_datadir, mocker, mock_client):
+        """Full load must not add write_date to the request or the output, even on a model that has it."""
+        write_config(
+            kbc_datadir,
+            {**BASE_PARAMS, "incremental": False, "fields": ["id", "name"]},
+        )
+
+        fields_seen = []
+
+        def capture(*args, **kwargs):
+            fields_seen.append(kwargs.get("fields"))
+            if len(fields_seen) > 1:
+                return []
+            return [{"id": 1, "name": "Azure"}]
+
+        mock_client.search_read = capture
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
+        Component().run()
+
+        assert fields_seen[0] == ["id", "name"]
+        header = (kbc_datadir / "out" / "tables" / "res_partner.csv").read_text().splitlines()[0]
+        assert "write_date" not in header
+
 
 class TestStatePersistence:
     def test_highest_write_date_saved_in_incremental_mode(self, kbc_datadir, mocker, mock_client):
