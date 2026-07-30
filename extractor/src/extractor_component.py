@@ -178,6 +178,10 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         # models without write_date it also resumes incremental extraction across runs.
         cursor_id = self._id_cursor_start(tracks_changes)
         max_write_date = last_write_date
+        # Watermark captured BEFORE the first fetch: a record modified while we page can carry a
+        # write_date newer than an already-read page, so the persisted cursor must not advance
+        # past the run start or that modification is never re-selected on a later run.
+        run_start = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         all_relationship_metadata: dict[str, BridgeTableMetadata] = {}
 
         # Cursor-based paging loop (the id cursor only paginates within a single run)
@@ -268,6 +272,12 @@ class Component(OdooSyncActionsMixin, ComponentBase):
             odoo_version = self.client.get_version()
         except Exception:
             pass
+
+        # Cap the persisted cursor at the run start: min(run_start, observed max) re-reads a
+        # bounded overlap on the next run (idempotent upsert on `id`) rather than skipping a
+        # record modified mid-run. An empty cursor ("" = full sweep) is preserved.
+        if max_write_date:
+            max_write_date = min(max_write_date, run_start)
 
         # Build comprehensive state
         self.state = {

@@ -283,3 +283,22 @@ class TestStatePersistence:
         state = read_state(kbc_datadir)
         assert state["last_id"] == 51
         assert state["last_write_date"] == ""
+
+    def test_cursor_not_advanced_past_run_start(self, kbc_datadir, mocker, mock_client):
+        """A record modified mid-run can carry a write_date newer than an already-read page.
+        The persisted cursor must be capped at the run start, otherwise that record falls
+        outside the next run's `write_date >=` filter and its change is lost for good."""
+        from datetime import datetime, timedelta, timezone
+
+        future_wd = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        # page_size 1 forces a second (empty) page; page 1 carries a write_date "in the future"
+        # relative to the run, standing in for a record modified while the run was paging.
+        mock_client.search_read.side_effect = [[{"id": 3, "write_date": future_wd}], []]
+        write_config(kbc_datadir, {**BASE_PARAMS, "incremental": True, "page_size": 1})
+
+        mocker.patch("extractor_component.initialize_client", return_value=mock_client)
+        Component().run()
+
+        stored = read_state(kbc_datadir)["last_write_date"]
+        assert stored  # a cursor was persisted
+        assert stored < future_wd  # capped at run start, not advanced to the observed max
