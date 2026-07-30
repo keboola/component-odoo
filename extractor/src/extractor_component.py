@@ -18,6 +18,8 @@ from keboola.component.exceptions import UserException
 from shared.connection import PROTOCOL_XMLRPC
 from shared.odoo_base import OdooSyncActionsMixin, initialize_client
 
+INCREMENTAL_FIELD = "write_date"
+
 
 @dataclass
 class MetadataRow:
@@ -143,24 +145,26 @@ class Component(OdooSyncActionsMixin, ComponentBase):
             self.client.test_connection()
 
     def _extract_with_paging(self) -> None:
-        """Extract data with cursor-based pagination."""
+        """Extract data, paging by id and filtering by write_date in incremental mode."""
         logging.info(f"Extracting {self.config.model} -> {self.config.table_name}")
 
         many2one_fields = self._get_many2one_fields()
+        tracks_changes = INCREMENTAL_FIELD in self._model_fields(self.config.model)
+        # write_date incremental captures created *and* modified records; models without a
+        # write_date field keep the classic id-based incremental (new records only).
+        use_write_date = self.config.incremental and tracks_changes
+        last_write_date = self._incremental_cursor(tracks_changes)
 
-        # Check if we're switching from incremental to full load
-        state_last_id = self.state.get("last_id", 0)
-        if not self.config.incremental and state_last_id > 0:
-            logging.warning(f"Full load mode with existing state (last_id={state_last_id}). Starting fresh extraction.")
+        # Incremental runs fetch everything modified since the last run, regardless of id
+        base_domain = self.config.get_domain()
+        if last_write_date:
+            base_domain.append((INCREMENTAL_FIELD, ">=", last_write_date))
+            logging.info(f"Incremental mode: fetching records modified since {last_write_date}")
 
-        # Initialize cursor from state (incremental) or 0 (full load)
-        cursor_id = state_last_id if self.config.incremental else 0
-
-        # Build initial domain with cursor
-        domain = self.config.get_domain()
-        if cursor_id > 0:
-            domain.append(("id", ">", cursor_id))
-            logging.info(f"Incremental mode: resuming from ID {cursor_id}")
+        # Only fetch write_date when it drives the cursor; otherwise it would leak into the
+        # output as an extra column (drop_write_date is gated the same way).
+        fields_to_fetch = self._fields_to_fetch(use_write_date)
+        drop_write_date = use_write_date and bool(self.config.fields) and INCREMENTAL_FIELD not in self.config.fields
 
         table = self.create_out_table_definition(
             name=self.config.table_name,
@@ -170,16 +174,25 @@ class Component(OdooSyncActionsMixin, ComponentBase):
 
         page_num = 1
         total_records = 0
+        # For write_date models the id cursor only paginates within a run (starts at 0); for
+        # models without write_date it also resumes incremental extraction across runs.
+        cursor_id = self._id_cursor_start(tracks_changes)
+        max_write_date = last_write_date
+        # Watermark captured BEFORE the first fetch: a record modified while we page can carry a
+        # write_date newer than an already-read page, so the persisted cursor must not advance
+        # past the run start or that modification is never re-selected on a later run.
+        run_start = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         all_relationship_metadata: dict[str, BridgeTableMetadata] = {}
 
-        # Cursor-based paging loop
+        # Cursor-based paging loop (the id cursor only paginates within a single run)
         while True:
             logging.info(f"Fetching page {page_num} (cursor: id > {cursor_id}, limit: {self.config.page_size})")
 
+            domain = [*base_domain, ("id", ">", cursor_id)] if cursor_id > 0 else base_domain
             records = self.client.search_read(
                 model=self.config.model,
                 domain=domain,
-                fields=self.config.fields,
+                fields=fields_to_fetch,
                 limit=self.config.page_size,
                 order="id asc",
             )
@@ -187,6 +200,11 @@ class Component(OdooSyncActionsMixin, ComponentBase):
             if not records:
                 logging.info("No more records to fetch")
                 break
+
+            max_write_date = self._max_write_date(records, max_write_date)
+            if drop_write_date:
+                for record in records:
+                    record.pop(INCREMENTAL_FIELD, None)
 
             result = self._split_records(records, self.config.model, self.config.table_name, many2one_fields)
 
@@ -205,12 +223,7 @@ class Component(OdooSyncActionsMixin, ComponentBase):
                 all_relationship_metadata[rel_table_name].records.extend(rel_data.records)
 
             # Update cursor for next page
-            max_id = max(r.get("id", 0) for r in records if isinstance(r.get("id"), int))
-            cursor_id = max_id
-
-            # Update domain with new cursor
-            domain = [d for d in domain if d[0] != "id"]
-            domain.append(("id", ">", cursor_id))
+            cursor_id = max(r.get("id", 0) for r in records if isinstance(r.get("id"), int))
 
             total_records += len(records)
             page_num += 1
@@ -260,11 +273,17 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         except Exception:
             pass
 
+        # Cap the persisted cursor at the run start: min(run_start, observed max) re-reads a
+        # bounded overlap on the next run (idempotent upsert on `id`) rather than skipping a
+        # record modified mid-run. An empty cursor ("" = full sweep) is preserved.
+        if max_write_date:
+            max_write_date = min(max_write_date, run_start)
+
         # Build comprehensive state
         self.state = {
             "model": self.config.model,
             "domain": self.config.domain or "",
-            "last_id": cursor_id if self.config.incremental else 0,
+            "last_write_date": max_write_date if use_write_date else "",
             "last_run": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "records_fetched": total_records,
@@ -273,6 +292,9 @@ class Component(OdooSyncActionsMixin, ComponentBase):
                 "page_size": self.config.page_size,
             },
         }
+        # Models without write_date resume by id instead (new records only).
+        if self.config.incremental and not tracks_changes:
+            self.state["last_id"] = cursor_id
 
     @staticmethod
     def _split_records(
@@ -542,6 +564,58 @@ class Component(OdooSyncActionsMixin, ComponentBase):
         if model_name not in self._fields_cache:
             self._fields_cache[model_name] = self.client.get_model_fields(model_name)
         return self._fields_cache[model_name]
+
+    def _incremental_cursor(self, tracks_changes: bool) -> str:
+        """Return the write_date to resume from, or an empty string for a full sweep."""
+        if not self.config.incremental or not tracks_changes:
+            # Full load, or a model without write_date (handled by the id cursor instead).
+            return ""
+
+        cursor = str(self.state.get("last_write_date", ""))
+        if not cursor and self.state.get("last_id"):
+            logging.info(
+                "State was created by the id-based cursor - running one full sweep to pick up "
+                "records modified since they were first extracted."
+            )
+        return cursor
+
+    def _id_cursor_start(self, tracks_changes: bool) -> int:
+        """
+        Starting value for the id paging cursor.
+
+        For models with a write_date field this is always 0 - the id cursor only paginates
+        within a single run. For models WITHOUT a write_date field it doubles as the
+        incremental resume point (classic append-only ``id > last_id`` behaviour), so new
+        records are still fetched cheaply instead of re-sweeping the whole model every run.
+        """
+        if not self.config.incremental or tracks_changes:
+            return 0
+
+        try:
+            last_id = int(self.state.get("last_id", 0) or 0)
+        except (TypeError, ValueError):
+            last_id = 0
+
+        logging.warning(
+            f"Model {self.config.model} has no '{INCREMENTAL_FIELD}' field - using id-based "
+            f"incremental (resuming from id {last_id}); records modified after creation are "
+            "not re-fetched for this model."
+        )
+        return last_id
+
+    def _fields_to_fetch(self, use_write_date: bool) -> list[str] | None:
+        """Add write_date to the requested fields so the write_date cursor can be advanced."""
+        if not self.config.fields or not use_write_date:
+            return self.config.fields
+        if INCREMENTAL_FIELD in self.config.fields:
+            return self.config.fields
+        return [*self.config.fields, INCREMENTAL_FIELD]
+
+    @staticmethod
+    def _max_write_date(records: list[dict[str, Any]], current: str) -> str:
+        """Highest write_date seen so far - the cursor for the next run."""
+        write_dates = [str(r[INCREMENTAL_FIELD]) for r in records if r.get(INCREMENTAL_FIELD)]
+        return max([current, *write_dates]) if write_dates else current
 
     def _get_many2one_fields(self) -> set[str]:
         """Get the set of many2one field names for the configured model."""

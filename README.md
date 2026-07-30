@@ -11,13 +11,13 @@ Extract data from Odoo ERP systems using XML-RPC or JSON-2 protocols with dynami
 - ✅ **Database Discovery** - Auto-discover available databases on Odoo instance
 - ✅ **Test Connection** - Validate credentials before running extractions
 - ✅ **Configuration Rows** - Modern Keboola pattern: one row per model
-- ✅ **Incremental Loading** - Cursor-based state tracking for efficient updates
+- ✅ **Incremental Loading** - `write_date`-based state tracking for new and modified records
 - ✅ **Smart Relationship Handling** - Automatically splits many2many/one2many into normalized tables
 
 ### Technical Highlights
 - ✅ **Modern Type Hints** - Python 3.13 with `list[str]`, `dict[str, Any]`, `int | None`
 - ✅ **Sync Actions** - Dynamic UI with testConnection, listDatabases, listModels, listFields
-- ✅ **Cursor-Based Pagination** - Efficient `id > cursor_id` pagination with configurable page size
+- ✅ **Cursor-Based Pagination** - Efficient `id > cursor_id` in-run pagination with configurable page size
 - ✅ **Client Abstraction** - Separate XmlRpcClient and Json2Client implementations
 - ✅ **Code Quality** - Ruff formatted, type-checked, dataclass-driven architecture
 
@@ -65,7 +65,7 @@ Each configuration row defines extraction for ONE Odoo model:
 **Optional Parameters:**
 - `fields` - Field list to extract (empty = extract all fields)
 - `domain` - Odoo domain filter (e.g., `[["state", "=", "sale"]]`)
-- `incremental` - Enable incremental loading (default: `false`)
+- `incremental` - Enable incremental loading based on `write_date` (default: `false`)
 - `page_size` - Records per page for pagination (default: `1000`)
 - `primary_key` - Primary key columns (default: `["id"]`)
 
@@ -339,15 +339,25 @@ The metadata file columns tell you everything you need:
 
 ## Incremental Loading
 
-Enable incremental loading to efficiently extract only new records since the last run.
+Enable incremental loading to extract only records created **or modified** since the last run.
 
 ### How It Works
 
-1. **Cursor-Based Pagination** - Uses `id > cursor_id` domain filter (not offset-based)
-2. **State Tracking** - Stores last processed ID after each successful run
-3. **Automatic Resume** - Next run continues from last processed ID
+1. **Change Tracking** - Uses the Odoo `write_date >= cursor` domain filter, so records updated after they were first extracted are picked up again
+2. **State Tracking** - Stores the highest `write_date` seen after each successful run
+3. **Upsert Into Storage** - Output tables are loaded incrementally with `id` as primary key, so re-fetched records overwrite their previous version
 4. **Per-Row State** - Each configuration row tracks its own state independently
 5. **Full Load Override** - Switching from incremental to full load starts fresh
+
+The cursor is inclusive (`>=`), so the boundary record is re-fetched on the next run and
+upserted - this guarantees no change is lost on the second boundary.
+
+Models without a `write_date` field (Odoo does not add audit columns to every model) fall back
+to id-based incremental (`id > last_id`): new records are still fetched cheaply, but records
+modified after creation are not re-captured for those models. A warning is logged.
+
+If `fields` are explicitly selected, `write_date` is added to the API request automatically and
+removed from the output again, so the output schema is unchanged.
 
 ### State Structure
 
@@ -355,41 +365,51 @@ Each configuration row maintains its own state file:
 
 ```json
 {
-  "last_id": 1234,
-  "last_run": "2026-01-27T10:30:00Z",
-  "metadata": {
-    "model": "res.partner",
+  "model": "res.partner",
+  "domain": "[[\"active\", \"=\", true]]",
+  "last_write_date": "2026-07-23 08:33:48",
+  "last_run": {
+    "timestamp": "2026-01-27T10:30:00Z",
+    "records_fetched": 1234,
     "incremental": true,
-    "domain": [["active", "=", true]],
-    "fields": ["id", "name", "email"],
+    "odoo_version": "18.0",
     "page_size": 1000
   }
 }
 ```
 
 **State Fields:**
-- `last_id` - Last successfully processed record ID (cursor position)
-- `last_run` - ISO timestamp of last successful extraction
-- `metadata` - Configuration snapshot for validation (detects domain/field changes)
+- `last_write_date` - Highest `write_date` extracted so far (incremental cursor for models with a `write_date` field)
+- `last_id` - Highest `id` extracted so far, used only for models **without** a `write_date` field
+- `model` / `domain` - Configuration snapshot for validation (detects model/domain changes)
+- `last_run` - Diagnostics for the previous extraction
+
+State written by older versions contains only `last_id`. For a model that has `write_date`, the
+first run after the upgrade ignores it and performs one full sweep, which backfills records that
+were modified while the id-based cursor was in use. Models without `write_date` keep resuming
+from `last_id` as before.
 
 ### Cursor-Based Pagination
 
-The component uses efficient cursor-based pagination:
+Within a single run the component pages by `id` (not offset):
 
 ```python
 # Page 1: Extract records 1-1000
-domain: [["id", ">", 0]]
+domain: [["write_date", ">=", "2026-07-23 08:33:48"]]
 
 # Page 2: Extract records 1001-2000
-domain: [["id", ">", 1000]]
+domain: [["write_date", ">=", "2026-07-23 08:33:48"], ["id", ">", 1000]]
 
 # Page 3: Extract records 2001-3000
-domain: [["id", ">", 2000]]
+domain: [["write_date", ">=", "2026-07-23 08:33:48"], ["id", ">", 2000]]
 ```
+
+The id cursor resets to `0` at the start of every run - it paginates, it does not decide which
+records are new.
 
 **Benefits:**
 - ✅ Constant query performance (no OFFSET overhead)
-- ✅ Works with incremental mode (adds to existing domain)
+- ✅ Preserves any `id` filter in the user-supplied domain
 - ✅ Handles large datasets efficiently
 - ✅ Configurable page size (default: 1000)
 
