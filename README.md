@@ -64,7 +64,8 @@ Each configuration row defines extraction for ONE Odoo model:
 
 **Optional Parameters:**
 - `fields` - Field list to extract (empty = extract all fields)
-- `domain` - Odoo domain filter (e.g., `[["state", "=", "sale"]]`)
+- `domain` - Odoo domain filter (e.g., `[["state", "=", "sale"]]`); see
+  [Archived (Inactive) Records](#archived-inactive-records) for extracting archived records
 - `incremental` - Enable incremental loading based on `write_date` (default: `false`)
 - `page_size` - Records per page for pagination (default: `1000`)
 - `primary_key` - Primary key columns (default: `["id"]`)
@@ -336,6 +337,29 @@ The metadata file columns tell you everything you need:
 - ✅ Includes only fields you selected (if using field picker)
 - ✅ Includes all fields if no field selection (extract all)
 - ✅ Prefixed with `metadata__` for easy identification
+
+## Archived (Inactive) Records
+
+Odoo hides archived records (`active = false`) from all API searches by default. This is
+Odoo server-side behavior and applies to both full and incremental loads - the extractor
+will not return archived records unless you tell Odoo to include them.
+
+To extract archived records, add a filter on the `active` field to the Domain Filter (any
+mention of `active` in the domain disables Odoo's implicit active-only filter):
+
+```json
+["|", ["active", "=", true], ["active", "=", false]]
+```
+
+Notes:
+
+- Archiving a record updates its `write_date`, but without the domain above the record
+  becomes invisible to the API - the incremental sync can never observe the archival and
+  the extracted row keeps a stale `active = true`. With the domain above, archive/unarchive
+  changes are picked up on the next incremental run.
+- Changing the domain requires clearing the row state; the next incremental run then
+  performs one full sweep and continues incrementally.
+- Models without an `active` field don't need this (nothing is ever hidden).
 
 ## Incremental Loading
 
