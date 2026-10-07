@@ -1,1 +1,1 @@
-https://github.com/keboola/component-odoo-extractor/blob/main/LICENSE.md
+https://github.com/keboola/component-odoo/blob/main/LICENSE.md
