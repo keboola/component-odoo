@@ -1,1 +1,1 @@
-https://github.com/keboola/component-odoo-extractor
+https://github.com/keboola/component-odoo
