@@ -18,10 +18,8 @@ COPY packages/ packages/
 
 RUN uv sync --all-groups --frozen
 
-COPY extractor/src/ src/
+COPY extractor/src/ extractor/src/
 COPY tests/ tests/
 COPY scripts/ scripts/
-COPY .flake8 .
-COPY deploy.sh .
 
-CMD ["uv", "run", "--no-sync", "python", "-u", "src/extractor_component.py"]
+CMD ["uv", "run", "--no-sync", "python", "-u", "extractor/src/extractor_component.py"]
